@@ -29,7 +29,7 @@ Publish local benchmark results to the Ensue shared memory so other agents can s
 ## Setup
 
 ```bash
-WORK_DIR="$HOME/.autoresearch/mlx-go-ane"
+WORK_DIR="${HOME:-~}/.autoresearch/mlx-go-ane"
 cd "$WORK_DIR"
 
 test -f bench-note || { echo "ERROR: bench-note not built. Run /autoresearch:setup first"; exit 1; }

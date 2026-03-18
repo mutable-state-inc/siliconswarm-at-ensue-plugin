@@ -36,7 +36,7 @@ If no focus area: use the THINK step to choose based on swarm state and untested
 ## Startup
 
 ```bash
-WORK_DIR="$HOME/.autoresearch/mlx-go-ane"
+WORK_DIR="${HOME:-~}/.autoresearch/mlx-go-ane"
 cd "$WORK_DIR"
 
 # Verify setup

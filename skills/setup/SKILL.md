@@ -1,6 +1,6 @@
 ---
 name: setup
-description: "Set up the autoresearch ANE inference environment: clone mlx-go-ane + mlx-go + apple repos, fix go.mod, build bench-note, detect Apple Silicon chip, and run a smoke test with Qwen3.5-4B-4bit."
+description: "Set up the autoresearch ANE inference environment: clone mlx-go-ane + mlx-go + apple repos, build MLX C shared libraries, build bench-note, detect Apple Silicon chip, and smoke test with Qwen3.5-4B-4bit."
 argument-hint: "[action]  check | install | status"
 allowed-tools: Bash(*), Read, Write, Edit, Glob, Grep, Agent, AskUserQuestion
 triggers:
@@ -21,7 +21,7 @@ Set up everything needed to run autonomous ANE inference experiments. Walk throu
 | Action | What it does |
 |--------|-------------|
 | `check` | Verify prerequisites without changing anything |
-| `install` | Full setup: prereqs → clone → build → smoke test |
+| `install` | Full setup: prereqs → clone → build MLX libs → build tools → smoke test |
 | `status` | Show current state of all components |
 | *(empty)* | Same as `install` |
 
@@ -30,12 +30,16 @@ Set up everything needed to run autonomous ANE inference experiments. Walk throu
 ```
 ~/.autoresearch/
 ├── mlx-go-ane/                    # Inference benchmarking framework (experiments here)
-├── mlx-go/                        # MLX Go bindings (dependency, private repo)
+├── mlx-go/                        # MLX Go bindings (dependency)
+│   ├── mlxc/lib/                  # MLX C shared library builder (cmake)
+│   │   └── dist/darwin-arm64/     # Built: libmlx.dylib, libmlxc.dylib, mlx.metallib
 │   └── examples/mlx-go-lm/       # LM inference library
-└── apple/                         # Apple framework bindings (dependency)
+└── apple/                         # Apple framework bindings
+    ├── private/appleneuralengine/ # Private ANE bindings
+    └── x/ane/                     # Higher-level ANE helpers
 ```
 
-The model (Qwen3.5-4B-4bit) is auto-downloaded from HuggingFace on first benchmark run via mlx-go's HF cache. No manual download needed.
+The model (Qwen3.5-4B-4bit) is auto-downloaded from HuggingFace on first benchmark run. No manual download needed.
 
 ---
 
@@ -52,9 +56,8 @@ go version
 # 3. Git
 git --version
 
-# 4. GitHub CLI (for private repo access to mlx-go)
-gh --version
-gh auth status
+# 4. CMake (required to build MLX C shared libraries)
+cmake --version
 
 # 5. benchstat
 which benchstat || go install golang.org/x/perf/cmd/benchstat@latest
@@ -64,60 +67,75 @@ which benchstat || go install golang.org/x/perf/cmd/benchstat@latest
 ```
 
 If Go is missing: `brew install go`
-If gh is missing: `brew install gh`
-If gh auth fails: prompt user to run `gh auth login`
+If CMake is missing: `brew install cmake`
 
 ---
 
 ## Phase 2: Clone Repositories
 
-The mlx-go-ane framework depends on sibling repos via `replace` directives in go.mod.
-
 ```bash
-WORK_DIR="$HOME/.autoresearch"
+WORK_DIR="${HOME:-~}/.autoresearch"
 mkdir -p "$WORK_DIR"
 
-# 1. Clone mlx-go (private — needs gh auth)
-if [ ! -d "$WORK_DIR/mlx-go/.git" ]; then
-    gh repo clone tmc/mlx-go "$WORK_DIR/mlx-go"
-else
-    echo "mlx-go: already cloned"
-fi
+# Clone helper: try SSH first, fall back to HTTPS
+clone_repo() {
+    local repo="$1" dest="$2"
+    if [ -d "$dest/.git" ]; then
+        echo "$repo: already cloned"
+        return 0
+    fi
+    echo "Cloning $repo..."
+    git clone "git@github.com:tmc/$repo.git" "$dest" 2>/dev/null \
+        || git clone "https://github.com/tmc/$repo.git" "$dest"
+}
 
-# 2. Clone apple framework bindings
-if [ ! -d "$WORK_DIR/apple/.git" ]; then
-    gh repo clone tmc/apple "$WORK_DIR/apple"
-else
-    echo "apple: already cloned"
-fi
-
-# 3. Clone mlx-go-ane (the main benchmarking repo)
-if [ ! -d "$WORK_DIR/mlx-go-ane/.git" ]; then
-    gh repo clone tmc/mlx-go-ane "$WORK_DIR/mlx-go-ane"
-else
-    echo "mlx-go-ane: already cloned"
-fi
+clone_repo mlx-go "$WORK_DIR/mlx-go"
+clone_repo apple "$WORK_DIR/apple"
+clone_repo autoresearch-mlx-go-ane "$WORK_DIR/mlx-go-ane"
 ```
 
 ---
 
-## Phase 3: Fix go.mod Replace Directives
+## Phase 3: Build MLX C Shared Libraries
 
-The upstream go.mod may have `replace` directives pointing to the author's local paths. Update them to point to our `~/.autoresearch/` layout:
+This is the critical step. mlx-go uses CGO bindings to libmlx/libmlxc. These must be built from source via cmake.
+
+```bash
+cd "$WORK_DIR/mlx-go/mlxc/lib"
+make libs
+```
+
+This runs `go run generate.go` which:
+1. Clones `ml-explore/mlx-c` (the official MLX C API)
+2. Runs cmake to build `libmlx.dylib`, `libmlxc.dylib`, and `mlx.metallib`
+3. Places them in `dist/darwin-arm64/`
+
+**This takes several minutes on first run** (compiling MLX from source). Subsequent runs are fast (cached).
+
+Verify the build:
+```bash
+ls -la "$WORK_DIR/mlx-go/mlxc/lib/dist/darwin-arm64/"
+# Should contain: libmlx.dylib, libmlxc.dylib, mlx.metallib
+```
+
+The CGO linker flags reference `mlxc/lib/` directly, but `make libs` puts files in `dist/darwin-arm64/`. Symlink them so both paths work:
+```bash
+cd "$WORK_DIR/mlx-go/mlxc/lib"
+for f in libmlx.dylib libmlxc.dylib mlx.metallib; do
+    [ -f "dist/darwin-arm64/$f" ] && [ ! -e "$f" ] && ln -s "dist/darwin-arm64/$f" "$f"
+done
+```
+
+---
+
+## Phase 4: Fix go.mod Replace Directives
+
+The go.mod in mlx-go-ane needs replace directives pointing to sibling repos:
 
 ```bash
 cd "$WORK_DIR/mlx-go-ane"
-grep -n 'replace' go.mod
-```
 
-The replace directives should point to:
-- `github.com/tmc/mlx-go => ../mlx-go`
-- `github.com/tmc/mlx-go-lm => ../mlx-go/examples/mlx-go-lm`
-- `github.com/tmc/apple => ../apple`
-
-Fix any that point elsewhere:
-
-```bash
+# Ensure replace directives point to our layout
 go mod edit -replace github.com/tmc/mlx-go=../mlx-go
 go mod edit -replace github.com/tmc/mlx-go-lm=../mlx-go/examples/mlx-go-lm
 go mod edit -replace github.com/tmc/apple=../apple
@@ -126,58 +144,99 @@ go mod tidy
 
 ---
 
-## Phase 4: Build Tools
+## Phase 5: Build & Verify
 
 ```bash
 cd "$WORK_DIR/mlx-go-ane"
 
-# Build bench-note
-go build -o bench-note ./cmd/bench-note/
-
-# Verify test compilation
+# Verify test compilation (catches missing headers/libs)
 go test -c -o /dev/null .
-```
 
----
-
-## Phase 5: Smoke Test
-
-Run a quick benchmark (1 iteration, 1 count) to verify everything works. This auto-downloads Qwen3.5-4B-4bit from HuggingFace on first run.
-
-```bash
-cd "$WORK_DIR/mlx-go-ane"
-go test -bench=BenchmarkInference/mode=GPU/Generate -benchtime=1x -count=1 -run='^$' -timeout=10m -v
-```
-
-Report:
-- Build success/failure
-- Model download status (auto-cached by mlx-go HF cache)
-- tok/s, decode_tok/s, prefill_ms
-- Whether ANE mode was active or unavailable
-- Peak memory usage
-
----
-
-## Phase 6: Ensue Connection (Optional)
-
-```bash
-# Check for Ensue API key
-if [ -n "${ENSUE_API_KEY:-}" ] || [ -f "$WORK_DIR/mlx-go-ane/.autoresearch-key" ]; then
-    echo "Ensue: API key found"
-else
-    echo "Ensue: No API key (standalone mode — results stay local)"
-    echo "  To enable swarm mode: export ENSUE_API_KEY=<your-key>"
+# Build bench-note if it exists
+if [ -d cmd/bench-note ]; then
+    go build -o bench-note ./cmd/bench-note/
 fi
 ```
 
-If Ensue MCP tools are available, test connectivity:
+---
+
+## Phase 6: Smoke Test
+
+Run a quick benchmark. This auto-downloads Qwen3.5-4B-4bit from HuggingFace on first run (~2.5GB, cached after).
+
+```bash
+cd "$WORK_DIR/mlx-go-ane"
+go test -bench=BenchmarkInference/mode=GPU/Generate -benchtime=1x -count=1 -run='^$' -timeout=15m -v
+```
+
+First run is slow due to model download + MLX compilation warmup. Report:
+- tok/s, decode_tok/s, prefill_ms
+- Whether ANE mode was active
+- Peak memory
+
+---
+
+## Phase 7: Ensue Collaboration Setup
+
+Check if the user already has an Ensue API key:
+
+```bash
+if [ -n "${ENSUE_API_KEY:-}" ] || [ -f "$WORK_DIR/mlx-go-ane/.autoresearch-key" ]; then
+    echo "Ensue: API key found"
+else
+    echo "Ensue: No API key found"
+fi
+```
+
+If no key is found, walk the user through signup:
+
+### Step 1: Register an agent
+
+```bash
+curl -sf -X POST https://api.ensue-network.ai/auth/agent-register \
+  -H "Content-Type: application/json" \
+  -d '{"name": "autoresearch-<username>"}'
+```
+
+This returns a JSON response with `api_key` and `claim_url`. Save the key:
+
+```bash
+echo "<api_key from response>" > "$WORK_DIR/mlx-go-ane/.autoresearch-key"
+```
+
+### Step 2: Verify email
+
+The user must open the `claim_url` from the response (append `&redirect=/autoresearch`) in a browser and verify their email.
+
+### Step 3: Join the community swarm
+
+Visit: https://www.ensue-network.ai/autoresearch
+
+This joins the shared workspace where all agents publish results. The agent reads `collab.md` and auto-joins via the invite token.
+
+### Step 4: Verify connectivity
+
+If Ensue MCP tools are available:
 ```
 list_keys(prefix="@travis_cline/infer/best/", limit=5)
 ```
 
+Or via curl:
+```bash
+ENSUE_API_KEY=$(cat "$WORK_DIR/mlx-go-ane/.autoresearch-key")
+curl -sf -X POST https://api.ensue-network.ai/ \
+  -H "Authorization: Bearer $ENSUE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"list_keys","arguments":{"prefix":"@travis_cline/infer/best/","limit":5}},"id":1}'
+```
+
+If connectivity works, report "Ensue: connected". If it fails, the harness still works standalone — results stay local in git notes and results.tsv.
+
+**Ensue is optional but recommended** — it enables multi-machine coordination so agents on different Macs avoid duplicate work and build on each other's results.
+
 ---
 
-## Phase 7: Prepare Experiment Branch
+## Phase 8: Prepare Experiment Branch
 
 ```bash
 cd "$WORK_DIR/mlx-go-ane"
@@ -200,8 +259,9 @@ Setup complete!
 
   Chip:           [chip name] ([tier] tier, [TOPS] TOPS)
   Repos:          ~/.autoresearch/{mlx-go-ane, mlx-go, apple}
+  MLX libs:       libmlx.dylib, libmlxc.dylib, mlx.metallib
   Model:          Qwen3.5-4B-4bit (auto-downloaded via HF cache)
-  Bench-note:     built
+  Bench-note:     [built / N/A]
   ANE mode:       [active / unavailable]
   Ensue:          [connected / standalone]
   Branch:         autoresearch/[date]-setup
@@ -225,13 +285,13 @@ Focus areas: cache-types, sampling, models, ane-modes, prompts,
 When action is `status`, check and report without modifying:
 
 ```bash
-WORK_DIR="$HOME/.autoresearch"
+WORK_DIR="${HOME:-~}/.autoresearch"
 
 echo "=== Prerequisites ==="
 uname -m
 sysctl -n machdep.cpu.brand_string
 go version 2>/dev/null || echo "Go: NOT INSTALLED"
-gh --version 2>/dev/null || echo "gh: NOT INSTALLED"
+cmake --version 2>/dev/null | head -1 || echo "cmake: NOT INSTALLED"
 which benchstat 2>/dev/null && echo "benchstat: OK" || echo "benchstat: MISSING"
 
 echo ""
@@ -245,6 +305,16 @@ for repo in mlx-go apple mlx-go-ane; do
 done
 
 echo ""
+echo "=== MLX C Libraries ==="
+if [ -f "$WORK_DIR/mlx-go/mlxc/lib/dist/darwin-arm64/libmlx.dylib" ]; then
+    echo "libmlx.dylib: BUILT"
+    echo "libmlxc.dylib: $(test -f $WORK_DIR/mlx-go/mlxc/lib/dist/darwin-arm64/libmlxc.dylib && echo BUILT || echo MISSING)"
+    echo "mlx.metallib: $(test -f $WORK_DIR/mlx-go/mlxc/lib/dist/darwin-arm64/mlx.metallib && echo BUILT || echo MISSING)"
+else
+    echo "MLX libs: NOT BUILT (run: cd ~/.autoresearch/mlx-go/mlxc/lib && make)"
+fi
+
+echo ""
 echo "=== Build ==="
 test -f "$WORK_DIR/mlx-go-ane/bench-note" && echo "bench-note: BUILT" || echo "bench-note: NOT BUILT"
 
@@ -253,7 +323,7 @@ echo "=== Ensue ==="
 if [ -n "${ENSUE_API_KEY:-}" ] || [ -f "$WORK_DIR/mlx-go-ane/.autoresearch-key" ]; then
     echo "API key: FOUND"
 else
-    echo "API key: NONE (standalone mode)"
+    echo "API key: NONE (run /autoresearch:setup to register)"
 fi
 
 echo ""
@@ -265,10 +335,12 @@ ls -d ~/.cache/huggingface/hub/models--mlx-community--Qwen3.5-4B-4bit 2>/dev/nul
 
 ## Error Recovery
 
-- **gh auth fails**: Run `gh auth login` interactively
-- **mlx-go clone fails (private repo)**: User needs invite — check https://github.com/tmc/mlx-go/invitations
+- **cmake missing**: `brew install cmake`
+- **MLX C build fails**: Check cmake output, ensure Xcode command line tools: `xcode-select --install`
+- **Clone fails**: Check network, verify repos are accessible at github.com/tmc/
 - **go.mod replace paths wrong**: Fix with `go mod edit -replace`
+- **`mlx/c/mlx.h` not found**: MLX C libs not built. Run `cd ~/.autoresearch/mlx-go/mlxc/lib && make`
 - **Go build fails**: Run `go mod tidy`, ensure Go 1.24+
 - **Model download slow/fails**: Check HF cache at `~/.cache/huggingface/`
-- **ANE not available**: Falls back to GPU-only mode (set `ANEDecodePlaneMode = "off"`)
-- **Benchmark timeout**: Increase timeout (`-timeout=15m`), first run is slower due to model download + compilation
+- **ANE not available**: Falls back to GPU-only (set `ANEDecodePlaneMode = "off"`)
+- **Benchmark timeout**: Increase to `-timeout=15m`, first run is slower
