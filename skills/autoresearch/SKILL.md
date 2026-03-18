@@ -178,13 +178,78 @@ Edit `experiment.go` (Tier 1). This is the primary experiment surface:
 
 If you've tried all the obvious constants and tok/s stops improving, do NOT stop. Instead:
 
-1. **Read the harness code** — study `harness.go`, `bench_ane_test.go`, and the mlx-go-lm library to understand what actually controls throughput. You cannot modify these files, but understanding them reveals what experiment.go knobs actually affect.
-2. **Profile** — run `go test -bench=. -cpuprofile=cpu.prof` and analyze with `go tool pprof` to find actual bottlenecks. Report findings as insights.
-3. **Combine near-misses** — if two changes each gave +1% but not significant, try them together.
-4. **Try radically different models** — the model is the biggest lever. Search HuggingFace for `mlx-community` models and try different architectures and sizes.
-5. **Vary GenerateTokens widely** — throughput at 500 tokens may be very different from 50.
-6. **Add new constants** — you can add new exported constants to experiment.go that the harness may pick up. Read harness.go to see what it looks for.
-7. **Publish hypotheses** — even if you can't test something, publish it as a hypothesis for other agents.
+1. **Combine near-misses** — if two changes each gave +1% but not significant, try them together.
+2. **Try radically different models** — the model is the biggest lever. Search HuggingFace for `mlx-community` models and try different architectures and sizes.
+3. **Vary GenerateTokens widely** — throughput at 500 tokens may be very different from 50.
+4. **Add new constants** — you can add new exported constants to experiment.go that the harness may pick up. Read harness.go to see what it looks for.
+5. **Profile** — run `go test -bench=. -cpuprofile=cpu.prof` and analyze with `go tool pprof` to find actual bottlenecks. Report findings as insights.
+6. **Propose deeper changes** — see "Proposing Changes Beyond experiment.go" below.
+
+#### Proposing changes beyond experiment.go
+
+You cannot modify `harness.go`, `bench_ane_test.go`, or the mlx-go / mlx-go-lm libraries directly. But you CAN and SHOULD read them deeply, reason about what limits throughput, and propose concrete changes to the user.
+
+**When to do this**: After 5+ experiment.go iterations with no significant improvement, or when profiling reveals a bottleneck outside experiment.go.
+
+**How to propose changes**:
+
+1. **Read the relevant code** — study `harness.go`, `bench_ane_test.go`, `decode/plane.go`, `decode/config.go`, and mlx-go-lm source (especially `decode/` and `engine.go` under `$GOPATH/src/github.com/tmc/mlx-go/examples/mlx-go-lm/`).
+
+2. **Identify the bottleneck** — use profiling, code reading, and your experiment results to form a thesis about what limits tok/s. Common bottlenecks:
+   - Sampling strategy (hardcoded `"lazy"` in harness.go — are there faster strategies?)
+   - KV cache configuration (rotating max size hardcoded, no quantized cache support)
+   - ANE decode plane tuning (env vars like `MLXGO_ANE_QWEN35_OUTPUT_MODE`, `MLXGO_ANE_QWEN35_WAIT_MODE` etc. are powerful but not exposed in experiment.go)
+   - Memory allocation patterns (per-iteration cache creation vs cache reuse)
+   - Synchronization overhead (`mlx.Synchronize` calls in the hot path)
+
+3. **Write a concrete proposal** — tell the user exactly:
+   - Which file and lines to change
+   - What the change is (show a diff or before/after)
+   - Why you think it will help (with evidence from profiling or experiments)
+   - Expected impact (estimated tok/s improvement and reasoning)
+
+4. **Present it clearly** — output a structured proposal like:
+
+   ```
+   PROPOSAL: Expose ANE output mode in experiment.go
+
+   File: harness.go:220
+   Current: SamplingStrategy: "lazy"  (hardcoded)
+   Proposed: SamplingStrategy: SamplingStrategy  (read from experiment.go)
+
+   New constant in experiment.go:
+     SamplingStrategy = "lazy"
+
+   Rationale: Profiling shows 15% of decode time in sampling.
+   Greedy (Temperature=0.0) should bypass this entirely but
+   the "lazy" strategy still runs the sampling pipeline.
+   An "argmax" strategy (if available in mlx-go-lm) would
+   eliminate this overhead.
+
+   Evidence: Temperature 0.0 vs 0.6 showed no difference,
+   suggesting the sampling code runs regardless.
+   ```
+
+5. **Keep looping** — don't wait for a response. Propose the change, then continue experimenting with what you CAN change. The user will implement your proposals when they're ready.
+
+6. **Publish proposals to Ensue** — if available, publish proposals as hypotheses so other agents and humans can see them:
+
+   ```
+   create_memory(items=[{
+     "key_name": "@sai_ane/infer/proposals/<agent>--<slug>",
+     "description": "[autoresearch] Proposal: <one-line summary>",
+     "value": "<base64 proposal JSON with file, lines, diff, rationale, evidence>",
+     "base64": true, "embed": true, "embed_source": "description"
+   }])
+   ```
+
+**Key areas to investigate for proposals**:
+
+- `harness.go` — sampling strategy, cache creation, synchronization points
+- `decode/plane.go` — ANE output materialization, GPU-ANE sync, buffer pooling
+- `decode/config.go` — env var knobs (OutputMode, ConsumerMode, PoolDepth, WaitMode, CompiledPrepare, DirectBlock) that could be exposed as experiment.go constants
+- `mlx-go-lm/decode/` — token iterator implementation, sampling pipeline
+- `mlx-go/` — core MLX bindings, memory management, Metal shader dispatch
 
 ### 4. COMMIT
 
@@ -288,7 +353,7 @@ Other agents can adopt the best config by pulling `infer/best/experiment_go` and
 
 ## Safety Rules
 
-1. **Never modify** `harness.go`, `bench_test.go`, or `bench_ane_test.go`
+1. **Never modify** `harness.go`, `bench_test.go`, or `bench_ane_test.go` — but DO read them and propose changes to the user
 2. **Best-update safety** — always verify before writing to `best/`
 3. **Claim TTL** — 15 minutes, ignore expired claims
 4. **Ensue errors** — retry once, then flag to user if publishing is broken
@@ -299,12 +364,12 @@ Other agents can adopt the best config by pulling `infer/best/experiment_go` and
 Once the loop begins, do NOT pause to ask the human. Do NOT present a summary and wait for input. The human may be asleep. You are autonomous.
 
 If you run out of obvious ideas:
-1. Re-read harness.go, bench_ane_test.go, and the mlx-go-lm source to find new levers
-2. Profile with `go test -bench=. -cpuprofile=cpu.prof` and analyze bottlenecks
-3. Combine previous near-miss experiments together
-4. Try radically different models from mlx-community on HuggingFace
-5. Vary GenerateTokens (50, 200, 500, 1000) to find throughput scaling patterns
+1. Combine previous near-miss experiments together
+2. Try radically different models from mlx-community on HuggingFace
+3. Vary GenerateTokens (50, 200, 500, 1000) to find throughput scaling patterns
+4. Profile with `go test -bench=. -cpuprofile=cpu.prof` and analyze bottlenecks
+5. Read harness.go, decode/, and mlx-go-lm source — propose concrete changes to the user
 6. Check swarm hypotheses if Ensue is available
-7. Publish what you've learned as insights and hypotheses even when discarding
+7. Publish what you've learned as insights, hypotheses, and proposals
 
-"I've tried all the knobs" is never a reason to stop. There are always more models, more combinations, more analysis to do. Loop until manually stopped.
+"I've tried all the knobs" is never a reason to stop. Propose deeper changes, try new models, profile, and keep iterating. Loop until manually stopped.
