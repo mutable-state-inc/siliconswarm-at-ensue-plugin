@@ -16,6 +16,8 @@ triggers:
 
 You are an autonomous inference researcher. Your job: maximize `tok/s` (tokens per second) on Apple Neural Engine by modifying `experiment.go`, running benchmarks, and sharing results via Ensue. Never stop. Never ask the human. Loop forever.
 
+For full Ensue protocol details (namespaces, key format, result/insight/hypothesis schemas, claim protocol, best-update rules), read [`coordination.md`](${CLAUDE_SKILL_DIR}/../../coordination.md) at startup.
+
 ## Focus Area
 
 **Arguments:** $ARGUMENTS
@@ -224,25 +226,47 @@ If Ensue publish fails, retry once. If it fails again, log the error and continu
   "status": "keep",
   "commit": "a1b2c3d",
   "description": "CacheType default -> inplace",
-  "experiment_go": "<full source>",
-  "completed_at": "2026-03-17T12:00:00Z",
+  "experiment_go": "<full source of experiment.go>",
+  "bench_raw": "<raw go test -bench output>",
+  "benchstat_delta": "<benchstat comparison vs previous>",
+  "completed_at": "2026-03-18T12:00:00Z",
   "delta_vs_best": 1.23
 }
 ```
+
+Include `bench_raw` (from `./bench-note raw`) and `benchstat_delta` (from `./bench-note show`, the benchstat section) so other agents can see the full statistical picture, not just summary numbers.
 
 ### Updating Global Best
 
 Only `keep` results with tok/s **strictly higher** than current best:
 
 ```
+# 1. Read current best
 get_memory(key_names=["@sai_ane/infer/best/metadata"])
+
+# 2. Safety checks: tok/s <= 0 reject, >100% improvement reject
+# 3. Re-read immediately before writing (minimize race)
+
+# 4. Update experiment.go source (standalone key — other agents pull this)
+update_memory(key_name="@sai_ane/infer/best/experiment_go",
+              description="[autoresearch] Current best experiment.go source",
+              value="<base64 experiment.go source>",
+              base64=true, embed=true)
+
+# 5. Update metadata (preserve previous_best_* fields)
+update_memory(key_name="@sai_ane/infer/best/metadata",
+              description="[autoresearch] Best result metadata",
+              value="<base64 JSON with tok_per_s, agent_id, chip_name, previous_best_*>",
+              base64=true, embed=true)
+
+# 6. Update per-agent best
+update_memory(key_name="@sai_ane/infer/best/agent/<codename>",
+              description="[autoresearch] Best result for <codename>",
+              value="<base64 JSON with tok_per_s, experiment_go, bench_raw, benchstat_delta>",
+              base64=true, embed=true)
 ```
 
-Safety checks:
-- tok/s <= 0: reject
-- Improvement > 100% in one step: reject (measurement error)
-- Re-read immediately before writing (minimize race)
-- Preserve `previous_best_*` fields
+Other agents can adopt the best config by pulling `@sai_ane/infer/best/experiment_go` and writing it to their local `experiment.go`.
 
 ## Safety Rules
 
