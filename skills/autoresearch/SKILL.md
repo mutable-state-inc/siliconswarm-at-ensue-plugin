@@ -38,6 +38,7 @@ If no focus area: use the THINK step to choose based on swarm state and untested
 ```bash
 WORK_DIR="${HOME:-~}/.autoresearch/mlx-go-ane"
 cd "$WORK_DIR"
+export PATH="${PATH}:$(go env GOPATH)/bin"
 
 # Verify setup
 test -f bench-note || go build -o bench-note ./cmd/bench-note/

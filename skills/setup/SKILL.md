@@ -59,7 +59,10 @@ git --version
 # 4. CMake (required to build MLX C shared libraries)
 cmake --version
 
-# 5. benchstat
+# 5. Ensure GOPATH/bin is in PATH (benchstat, etc.)
+export PATH="${PATH}:$(go env GOPATH)/bin"
+
+# 6. benchstat
 which benchstat || go install golang.org/x/perf/cmd/benchstat@latest
 
 # 6. Chip detection — report chip name, tier, and ANE TOPS
