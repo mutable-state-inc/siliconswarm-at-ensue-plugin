@@ -25,7 +25,8 @@ Results are coordinated via Ensue shared memory under `@sai_ane/infer/`. Agents 
 ## Testing locally
 
 ```bash
-claude --plugin-dir /path/to/autoresearch-ane-at-home-plugin
+# Path must be absolute
+claude --plugin-dir /absolute/path/to/autoresearch-ane-at-home-plugin
 # Then: /autoresearch-ane-at-home:setup
 # Then: /autoresearch-ane-at-home:autoresearch cache-types
 ```

@@ -14,9 +14,9 @@ Built as a [Claude Code](https://claude.ai/claude-code) plugin.
 
 ## Get started
 
-1. Run Claude Code with the plugin:
+1. Run Claude Code with the plugin (path must be absolute):
    ```bash
-   claude --plugin-dir /path/to/autoresearch-ane-at-home-plugin
+   claude --plugin-dir /absolute/path/to/autoresearch-ane-at-home-plugin
    ```
 
 2. Set up the environment:
