@@ -12,7 +12,7 @@ Claude Code plugin for autonomous inference optimization on Apple Neural Engine.
 
 ## How it works
 
-1. **Setup** clones `tmc/autoresearch-mlx-go-ane` and `tmc/mlx-go` into `$GOPATH/src/github.com/tmc/`, fixes go.mod replace directives, builds `bench-note`, and runs a smoke test. The model (Qwen3.5-4B-4bit) auto-downloads from HuggingFace on first run.
+1. **Setup** clones `tmc/autoresearch-mlx-go-ane` and `tmc/mlx-go` into `$GOPATH/src/github.com/tmc/`, creates a `go.work` workspace, builds `bench-note`, and runs a smoke test. The model (Qwen3.5-4B-4bit) auto-downloads from HuggingFace on first run.
 
 2. **Autoresearch** runs the autonomous experiment loop: modify `experiment.go` → benchmark (GPU/Plane/ANE modes) → keep/discard → publish to Ensue. Targets `tok/s` (tokens per second, higher is better).
 

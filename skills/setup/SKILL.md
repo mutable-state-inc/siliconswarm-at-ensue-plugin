@@ -129,18 +129,25 @@ done
 
 ---
 
-## Phase 4: Fix go.mod Replace Directives
+## Phase 4: Set Up Go Workspace
 
-The go.mod in mlx-go-ane needs replace directives pointing to sibling repos:
+Use `go work` so all sibling repos resolve locally without mutating each repo's go.mod:
 
 ```bash
-cd "$GOPATH_SRC/autoresearch-mlx-go-ane"
+cd "$GOPATH_SRC"
 
-# Ensure replace directives point to sibling repos in GOPATH
-go mod edit -replace github.com/tmc/mlx-go=../mlx-go
-go mod edit -replace github.com/tmc/mlx-go-lm=../mlx-go/examples/mlx-go-lm
-go mod tidy
+# Create workspace if it doesn't exist
+if [ ! -f go.work ]; then
+    go work init
+    go work use ./mlx-go
+    go work use ./mlx-go/examples/mlx-go-lm
+    go work use ./autoresearch-mlx-go-ane
+fi
 ```
+
+This replaces `go mod edit -replace` directives. The workspace file lives at `$GOPATH/src/github.com/tmc/go.work` and tells Go to resolve `github.com/tmc/mlx-go`, `github.com/tmc/mlx-go-lm`, and `github.com/tmc/mlx-go-ane` from sibling directories.
+
+Note: mlx-go's go.mod already contains the purego fork replace directive, which the workspace inherits automatically.
 
 ---
 
@@ -338,7 +345,7 @@ ls -d ~/.cache/huggingface/hub/models--mlx-community--Qwen3.5-4B-4bit 2>/dev/nul
 - **cmake missing**: `brew install cmake`
 - **MLX C build fails**: Check cmake output, ensure Xcode command line tools: `xcode-select --install`
 - **Clone fails**: Check network, verify repos are accessible at github.com/tmc/
-- **go.mod replace paths wrong**: Fix with `go mod edit -replace`
+- **Module resolution wrong**: Check `go.work` at `$GOPATH/src/github.com/tmc/go.work` lists all three modules
 - **`mlx/c/mlx.h` not found**: MLX C libs not built. Run `cd $GOPATH/src/github.com/tmc/mlx-go/mlxc/lib && make`
 - **Go build fails**: Run `go mod tidy`, ensure Go 1.24+
 - **Model download slow/fails**: Check HF cache at `~/.cache/huggingface/`
