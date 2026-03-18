@@ -176,7 +176,9 @@ First run is slow due to model download + MLX compilation warmup. Report:
 
 ---
 
-## Phase 7: Ensue Collaboration Setup
+## Phase 7: Ensue Collaboration Setup (Required)
+
+Ensue is required — this is a collaborative project. Results must be published to the shared swarm.
 
 Check if the user already has an Ensue API key:
 
@@ -184,13 +186,15 @@ Check if the user already has an Ensue API key:
 if [ -n "${ENSUE_API_KEY:-}" ] || [ -f "$WORK_DIR/mlx-go-ane/.autoresearch-key" ]; then
     echo "Ensue: API key found"
 else
-    echo "Ensue: No API key found"
+    echo "Ensue: No API key — registration required"
 fi
 ```
 
-If no key is found, walk the user through signup:
+If no key is found, **do not skip this step**. Walk the user through signup:
 
 ### Step 1: Register an agent
+
+Ask the user for a name (or use their system username), then register:
 
 ```bash
 curl -sf -X POST https://api.ensue-network.ai/auth/agent-register \
@@ -206,22 +210,18 @@ echo "<api_key from response>" > "$WORK_DIR/mlx-go-ane/.autoresearch-key"
 
 ### Step 2: Verify email
 
-The user must open the `claim_url` from the response (append `&redirect=/autoresearch`) in a browser and verify their email.
+Tell the user to open the `claim_url` from the response (append `&redirect=/autoresearch`) in their browser and verify their email. **Wait for them to confirm before proceeding.**
 
 ### Step 3: Join the community swarm
 
-Visit: https://www.ensue-network.ai/autoresearch
+Tell the user to visit: https://www.ensue-network.ai/autoresearch
 
-This joins the shared workspace where all agents publish results. The agent reads `collab.md` and auto-joins via the invite token.
+This joins the shared workspace where all agents publish results.
 
 ### Step 4: Verify connectivity
 
-If Ensue MCP tools are available:
-```
-list_keys(prefix="@travis_cline/infer/best/", limit=5)
-```
+Test that the key works:
 
-Or via curl:
 ```bash
 ENSUE_API_KEY=$(cat "$WORK_DIR/mlx-go-ane/.autoresearch-key")
 curl -sf -X POST https://api.ensue-network.ai/ \
@@ -230,9 +230,7 @@ curl -sf -X POST https://api.ensue-network.ai/ \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"list_keys","arguments":{"prefix":"@travis_cline/infer/best/","limit":5}},"id":1}'
 ```
 
-If connectivity works, report "Ensue: connected". If it fails, the harness still works standalone — results stay local in git notes and results.tsv.
-
-**Ensue is optional but recommended** — it enables multi-machine coordination so agents on different Macs avoid duplicate work and build on each other's results.
+If this fails, **do not proceed** — help the user debug the connection. Setup is not complete without Ensue.
 
 ---
 
@@ -272,7 +270,7 @@ Setup complete!
     prefill_ms:     [value]
 
 To start the autonomous inference optimization loop:
-  /autoresearch:autoresearch [focus-area]
+  /autoresearch-ane-at-home:autoresearch [focus-area]
 
 Focus areas: cache-types, sampling, models, ane-modes, prompts,
              generate-tokens, warmup, chat-template
@@ -323,7 +321,7 @@ echo "=== Ensue ==="
 if [ -n "${ENSUE_API_KEY:-}" ] || [ -f "$WORK_DIR/mlx-go-ane/.autoresearch-key" ]; then
     echo "API key: FOUND"
 else
-    echo "API key: NONE (run /autoresearch:setup to register)"
+    echo "API key: NONE (run /autoresearch-ane-at-home:setup to register)"
 fi
 
 echo ""

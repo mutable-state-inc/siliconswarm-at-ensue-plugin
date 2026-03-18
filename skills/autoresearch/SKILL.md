@@ -180,7 +180,7 @@ create_memory(items=[
 ])
 ```
 
-If Ensue is unavailable, log to `results.tsv` only and continue.
+If Ensue publish fails, retry once. If it fails again, log the error and continue the loop — but flag to the user that publishing is broken.
 
 **Result JSON schema:**
 ```json
@@ -221,7 +221,7 @@ Safety checks:
 1. **Never modify** `harness.go`, `bench_test.go`, or `bench_ane_test.go`
 2. **Best-update safety** — always verify before writing to `best/`
 3. **Claim TTL** — 15 minutes, ignore expired claims
-4. **Ensue errors are non-blocking** — log and continue solo
+4. **Ensue errors** — retry once, then flag to user if publishing is broken
 5. **Never stop** — loop until manually interrupted
 
 ## Never Stop

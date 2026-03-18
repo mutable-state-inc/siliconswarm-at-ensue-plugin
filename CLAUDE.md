@@ -1,4 +1,4 @@
-# autoresearch-skill
+# autoresearch-ane-at-home
 
 Claude Code plugin for autonomous inference optimization on Apple Neural Engine. Runs real LLM benchmarks (Qwen3.5-4B-4bit via mlx-go) and coordinates results across machines via Ensue.
 
@@ -6,9 +6,9 @@ Claude Code plugin for autonomous inference optimization on Apple Neural Engine.
 
 | Skill | Invocation | What it does |
 |-------|-----------|-------------|
-| Setup | `/autoresearch:setup` | Clone mlx-go-ane + deps, build tools, detect chip, smoke test |
-| Autoresearch | `/autoresearch:autoresearch [focus]` | Run the autonomous inference optimization loop (never stops) |
-| Publish | `/autoresearch:publish [target]` | Push results to Ensue swarm |
+| Setup | `/autoresearch-ane-at-home:setup` | Clone mlx-go-ane + deps, build tools, detect chip, smoke test |
+| Autoresearch | `/autoresearch-ane-at-home:autoresearch [focus]` | Run the autonomous inference optimization loop (never stops) |
+| Publish | `/autoresearch-ane-at-home:publish [target]` | Push results to Ensue swarm |
 
 ## How it works
 
@@ -26,6 +26,6 @@ Results are coordinated via Ensue shared memory under `@travis_cline/infer/`. Ag
 
 ```bash
 claude --plugin-dir /path/to/autoresearch-skill
-# Then: /autoresearch:setup
-# Then: /autoresearch:autoresearch cache-types
+# Then: /autoresearch-ane-at-home:setup
+# Then: /autoresearch-ane-at-home:autoresearch cache-types
 ```

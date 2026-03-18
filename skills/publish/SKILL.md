@@ -32,7 +32,7 @@ Publish local benchmark results to the Ensue shared memory so other agents can s
 WORK_DIR="${HOME:-~}/.autoresearch/mlx-go-ane"
 cd "$WORK_DIR"
 
-test -f bench-note || { echo "ERROR: bench-note not built. Run /autoresearch:setup first"; exit 1; }
+test -f bench-note || { echo "ERROR: bench-note not built. Run /autoresearch-ane-at-home:setup first"; exit 1; }
 ```
 
 Ensue MCP tools must be available (`create_memory`, `get_memory`, `update_memory`, `search_memories`, `list_keys`). If not, check for `ENSUE_API_KEY` env var or `.autoresearch-key` file and fall back to curl.
