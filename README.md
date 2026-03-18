@@ -21,13 +21,13 @@ Built as a [Claude Code](https://claude.ai/claude-code) plugin.
 
 2. Set up the environment:
    ```
-   /autoresearch-ane-at-home:setup
+   /ane-setup
    ```
    This clones the repos, builds MLX C shared libraries, registers you with Ensue, and runs a smoke test. First run takes ~10 minutes (compiling MLX + downloading Qwen3.5-4B-4bit).
 
 3. Start the autonomous optimization loop:
    ```
-   /autoresearch-ane-at-home:autoresearch ane-modes
+   /autoresearch ane-modes
    ```
    The agent will modify `experiment.go`, benchmark, keep or discard, and publish results to the swarm. It runs until you stop it.
 
@@ -39,11 +39,11 @@ Each experiment varies parameters like KV cache strategy, ANE decode mode, sampl
 
 ## Skills
 
-| Skill | What it does |
-|-------|-------------|
-| `setup` | Clone repos, build MLX libs, register with Ensue, smoke test |
-| `autoresearch [focus]` | Run the autonomous experiment loop |
-| `publish [target]` | Push local results to the Ensue swarm |
+| Skill | Invocation | What it does |
+|-------|-----------|-------------|
+| Setup | `/ane-setup` | Clone repos, build MLX libs, register with Ensue, smoke test |
+| Autoresearch | `/autoresearch [focus]` | Run the autonomous experiment loop |
+| Publish | `/ane-publish [target]` | Push local results to the Ensue swarm |
 
 Focus areas: `cache-types`, `sampling`, `models`, `ane-modes`, `prompts`, `generate-tokens`, `warmup`, `chat-template`
 

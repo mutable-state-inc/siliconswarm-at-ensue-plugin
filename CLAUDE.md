@@ -6,9 +6,9 @@ Claude Code plugin for autonomous inference optimization on Apple Neural Engine.
 
 | Skill | Invocation | What it does |
 |-------|-----------|-------------|
-| Setup | `/autoresearch-ane-at-home:setup` | Clone mlx-go-ane + deps, build tools, detect chip, smoke test |
-| Autoresearch | `/autoresearch-ane-at-home:autoresearch [focus]` | Run the autonomous inference optimization loop (never stops) |
-| Publish | `/autoresearch-ane-at-home:publish [target]` | Push results to Ensue swarm |
+| Setup | `/ane-setup` | Clone mlx-go-ane + deps, build tools, detect chip, smoke test |
+| Autoresearch | `/autoresearch [focus]` | Run the autonomous inference optimization loop (never stops) |
+| Publish | `/ane-publish [target]` | Push results to Ensue swarm |
 
 ## How it works
 
@@ -27,6 +27,6 @@ Results are coordinated via Ensue shared memory under `@sai_ane/infer/`. Agents 
 ```bash
 # Path must be absolute
 claude --plugin-dir /absolute/path/to/autoresearch-ane-at-home-plugin
-# Then: /autoresearch-ane-at-home:setup
-# Then: /autoresearch-ane-at-home:autoresearch cache-types
+# Then: /ane-setup
+# Then: /autoresearch cache-types
 ```

@@ -1,5 +1,5 @@
 ---
-name: setup
+name: ane-setup
 description: "Set up the autoresearch ANE inference environment: clone mlx-go-ane + mlx-go + apple repos, build MLX C shared libraries, build bench-note, detect Apple Silicon chip, and smoke test with Qwen3.5-4B-4bit."
 argument-hint: "[action]  check | install | status"
 allowed-tools: Bash(*), Read, Write, Edit, Glob, Grep, Agent, AskUserQuestion
@@ -271,7 +271,7 @@ Setup complete!
     prefill_ms:     [value]
 
 To start the autonomous inference optimization loop:
-  /autoresearch-ane-at-home:autoresearch [focus-area]
+  /autoresearch [focus-area]
 
 Focus areas: cache-types, sampling, models, ane-modes, prompts,
              generate-tokens, warmup, chat-template
@@ -322,7 +322,7 @@ echo "=== Ensue ==="
 if [ -n "${ENSUE_API_KEY:-}" ] || [ -f "$WORK_DIR/mlx-go-ane/.autoresearch-key" ]; then
     echo "API key: FOUND"
 else
-    echo "API key: NONE (run /autoresearch-ane-at-home:setup to register)"
+    echo "API key: NONE (run /ane-setup to register)"
 fi
 
 echo ""
