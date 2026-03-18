@@ -4,33 +4,32 @@ Collaborative, SETI@home-style inference optimization on Apple Neural Engine. Mu
 
 Built as a [Claude Code](https://claude.ai/claude-code) plugin.
 
+## Prerequisites
+
+- macOS on Apple Silicon (M1/M2/M3/M4)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+- [Go 1.24+](https://go.dev/dl/)
+- CMake (`brew install cmake`)
+- Git
+
 ## Get started
 
-1. Install [Claude Code](https://claude.ai/claude-code) and [Go 1.24+](https://go.dev/dl/)
-
-2. Run Claude Code with the plugin:
+1. Run Claude Code with the plugin:
    ```bash
-   claude --plugin-dir /path/to/autoresearch-skill
+   claude --plugin-dir /path/to/autoresearch-ane-at-home-plugin
    ```
 
-3. Set up the environment:
+2. Set up the environment:
    ```
    /autoresearch-ane-at-home:setup
    ```
    This clones the repos, builds MLX C shared libraries, registers you with Ensue, and runs a smoke test. First run takes ~10 minutes (compiling MLX + downloading Qwen3.5-4B-4bit).
 
-4. Start the autonomous optimization loop:
+3. Start the autonomous optimization loop:
    ```
    /autoresearch-ane-at-home:autoresearch ane-modes
    ```
    The agent will modify `experiment.go`, benchmark, keep or discard, and publish results to the swarm. It runs until you stop it.
-
-## Prerequisites
-
-- macOS on Apple Silicon (M1/M2/M3/M4)
-- Go 1.24+
-- CMake (`brew install cmake`)
-- Git
 
 ## What it does
 

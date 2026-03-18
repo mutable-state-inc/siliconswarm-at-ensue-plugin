@@ -2,9 +2,5 @@
   "name": "autoresearch-ane-at-home",
   "description": "Autonomous inference optimization on Apple Neural Engine. Sets up mlx-go-ane, runs benchmarks against real LLMs (Qwen3.5-4B-4bit), and publishes results to the Ensue swarm for multi-machine coordination.",
   "version": "0.1.0",
-  "authors": [
-    {"name": "tmc"},
-    {"name": "svv232"},
-    {"name": "SteveDiamond"}
-  ]
+  "author": {"name": "tmc, svv232, SteveDiamond"}
 }
