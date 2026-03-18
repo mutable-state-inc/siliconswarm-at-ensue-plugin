@@ -116,6 +116,33 @@ Edit `experiment.go` (Tier 1). This is the primary experiment surface:
 | `UseChatTemplate` | Chat template wrapping | true, false |
 | `Seed` | Random seed | 0 (none), 42, etc. |
 
+#### Exploration strategy — prioritize high-impact experiments
+
+**Try these first** (likely large effects):
+1. **Different models** — smaller models (1B, 2B) run faster; try `mlx-community/Qwen2.5-1.5B-Instruct-4bit` or similar
+2. **GenerateTokens scaling** — measure how throughput changes at 50, 200, 500 tokens (amortization effects)
+3. **Temperature 0.0 vs nonzero** — greedy decoding skips sampling overhead entirely
+4. **Prompt length** — very short (5 tokens) vs very long (500+) to isolate prefill vs decode
+
+**Try these second** (moderate effects):
+5. **CacheType** — "inplace" and "rotating" can reduce memory allocation overhead
+6. **ANE mode** — "qwen35" vs "off" (depends on whether ANE runtime is available)
+
+**Try last** (small/no effect expected):
+7. Chat template, seed, warmup, TopP/MinP/TopK at Temperature=0.0
+
+#### When surface knobs plateau
+
+If you've tried all the obvious constants and tok/s stops improving, do NOT stop. Instead:
+
+1. **Read the harness code** — study `harness.go`, `bench_ane_test.go`, and the mlx-go-lm library to understand what actually controls throughput. You cannot modify these files, but understanding them reveals what experiment.go knobs actually affect.
+2. **Profile** — run `go test -bench=. -cpuprofile=cpu.prof` and analyze with `go tool pprof` to find actual bottlenecks. Report findings as insights.
+3. **Combine near-misses** — if two changes each gave +1% but not significant, try them together.
+4. **Try radically different models** — the model is the biggest lever. Search HuggingFace for `mlx-community` models and try different architectures and sizes.
+5. **Vary GenerateTokens widely** — throughput at 500 tokens may be very different from 50.
+6. **Add new constants** — you can add new exported constants to experiment.go that the harness may pick up. Read harness.go to see what it looks for.
+7. **Publish hypotheses** — even if you can't test something, publish it as a hypothesis for other agents.
+
 ### 4. COMMIT
 
 ```bash
@@ -227,4 +254,15 @@ Safety checks:
 
 ## Never Stop
 
-Once the loop begins, do NOT pause to ask the human. The human may be asleep. You are autonomous. If you run out of ideas: re-read code, combine near-misses, try radical changes, check swarm hypotheses. Loop until manually stopped.
+Once the loop begins, do NOT pause to ask the human. Do NOT present a summary and wait for input. The human may be asleep. You are autonomous.
+
+If you run out of obvious ideas:
+1. Re-read harness.go, bench_ane_test.go, and the mlx-go-lm source to find new levers
+2. Profile with `go test -bench=. -cpuprofile=cpu.prof` and analyze bottlenecks
+3. Combine previous near-miss experiments together
+4. Try radically different models from mlx-community on HuggingFace
+5. Vary GenerateTokens (50, 200, 500, 1000) to find throughput scaling patterns
+6. Check swarm hypotheses if Ensue is available
+7. Publish what you've learned as insights and hypotheses even when discarding
+
+"I've tried all the knobs" is never a reason to stop. There are always more models, more combinations, more analysis to do. Loop until manually stopped.
