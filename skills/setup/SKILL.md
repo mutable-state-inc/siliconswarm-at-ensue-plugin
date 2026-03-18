@@ -165,6 +165,21 @@ if [ -d cmd/bench-note ]; then
 fi
 ```
 
+Build the `autoresearch-cli` tool from the plugin source. The plugin directory is `${CLAUDE_SKILL_DIR}/../..`:
+
+```bash
+cd "${CLAUDE_SKILL_DIR}/../.."
+go build -o "$GOPATH_SRC/autoresearch-mlx-go-ane/autoresearch-cli" ./cmd/autoresearch-cli/
+```
+
+This places the `autoresearch-cli` binary in the repo alongside `bench-note`. It provides:
+- `autoresearch-cli publish` — publish results with full source + benchmarks
+- `autoresearch-cli results` — list all swarm results
+- `autoresearch-cli search` — semantic search across shared memories
+- `autoresearch-cli best` — show current global best
+- `autoresearch-cli get` — read a specific memory
+- `autoresearch-cli list` — list keys in a namespace
+
 ---
 
 ## Phase 6: Smoke Test
@@ -173,7 +188,7 @@ Run a quick benchmark. This auto-downloads Qwen3.5-4B-4bit from HuggingFace on f
 
 ```bash
 cd "$GOPATH_SRC/autoresearch-mlx-go-ane"
-go test -bench=BenchmarkInference/mode=GPU/Generate -benchtime=1x -count=1 -run='^$' -timeout=15m -v
+go test -bench=BenchmarkGenerate -benchtime=1x -count=1 -run='^$' -timeout=15m -v
 ```
 
 First run is slow due to model download + MLX compilation warmup. Report:
@@ -197,32 +212,52 @@ If no key is found, register immediately using the system username:
 
 ```bash
 USERNAME=$(whoami)
-RESPONSE=$(curl -sf -X POST https://api.ensue-network.ai/auth/agent-register \
+# Try with username first, then with random suffix if name is taken
+RESPONSE=$(curl -s -X POST https://api.ensue-network.ai/auth/agent-register \
   -H "Content-Type: application/json" \
   -d "{\"name\": \"autoresearch-${USERNAME}\"}")
 
+# If name taken (409), retry with a random suffix
+if echo "$RESPONSE" | grep -q "already taken"; then
+    SUFFIX=$(head -c 4 /dev/urandom | xxd -p)
+    RESPONSE=$(curl -s -X POST https://api.ensue-network.ai/auth/agent-register \
+      -H "Content-Type: application/json" \
+      -d "{\"name\": \"autoresearch-${USERNAME}-${SUFFIX}\"}")
+fi
+
 # Parse and save the API key
-API_KEY=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['api_key'])" 2>/dev/null)
+API_KEY=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.loads(sys.stdin.read()); print(r.get('agent',r).get('api_key',''))" 2>/dev/null)
 echo "$API_KEY" > "$GOPATH_SRC/autoresearch-mlx-go-ane/.autoresearch-key"
 
 # Exclude from git (don't commit secrets)
 grep -qxF '.autoresearch-key' "$GOPATH_SRC/autoresearch-mlx-go-ane/.git/info/exclude" 2>/dev/null \
     || echo '.autoresearch-key' >> "$GOPATH_SRC/autoresearch-mlx-go-ane/.git/info/exclude"
 
-# Parse the claim URL
-CLAIM_URL=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['claim_url'])" 2>/dev/null)
+# Parse the claim URL and verification code
+CLAIM_URL=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.loads(sys.stdin.read()); print(r.get('agent',r).get('claim_url',''))" 2>/dev/null)
+VERIFICATION_CODE=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.loads(sys.stdin.read()); print(r.get('agent',r).get('verification_code',''))" 2>/dev/null)
 ```
 
-After saving the key, open the claim URL first. Once the user has claimed, open the org invite:
+If `API_KEY` is empty after this, the registration failed — print the full `RESPONSE` so the user can see the error.
+
+After saving the key, open the claim URL in the browser. **The key won't work until the user verifies their email.** This is a hard blocker — do not skip it.
 
 ```bash
-# Step 1: Verify email — open claim page
+# Open claim page in browser
 open "${CLAIM_URL}" 2>/dev/null || echo "Visit: ${CLAIM_URL}"
 ```
 
-Tell the user: "I've opened the Ensue claim page — please verify your email there, then let me know when you're done."
+**You MUST use AskUserQuestion here** to pause and wait for the user to confirm they've claimed. Display the verification code prominently so they can enter it on the claim page:
 
-Once they confirm (or after ~15 seconds if they don't respond), open the org invite:
+"I've opened the Ensue claim page in your browser.
+
+Your verification code is: **<VERIFICATION_CODE>**
+
+Please enter this code on the claim page to activate your API key, then say 'done'."
+
+**Do not proceed until the user confirms.** The API key is invalid until claimed.
+
+Once they confirm, open the org invite:
 
 ```bash
 # Step 2: Join the sai_ane org
@@ -236,7 +271,7 @@ ENSUE_API_KEY=$(cat "$GOPATH_SRC/autoresearch-mlx-go-ane/.autoresearch-key")
 curl -sf -X POST https://api.ensue-network.ai/ \
   -H "Authorization: Bearer $ENSUE_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"list_keys","arguments":{"prefix":"@sai_ane/infer/best/","limit":5}},"id":1}'
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"list_keys","arguments":{"prefix":"infer/best/","limit":5}},"id":1}'
 ```
 
 If connectivity check fails, note it in the summary but keep going — the user can fix it later.

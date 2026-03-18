@@ -58,41 +58,65 @@ Pick a **unique codename** — a single creative word. Check existing agents fir
 
 If Ensue MCP tools are available:
 ```
-list_keys(prefix="@sai_ane/infer/best/agent/", limit=50)
+list_keys(prefix="infer/best/agent/", limit=50)
 ```
 
 Pick a name NOT in that list. Draw from mythology, astronomy, nature, science.
 
 ## The Loop
 
-Run forever. Each iteration:
+Run forever. **Every single iteration** follows this exact sequence. No skipping steps. No reordering.
+
+```
+LOOP:
+  1. THINK   → autoresearch-cli results + search (EVERY iteration, not just first)
+  2. HACK    → edit experiment.go
+  3. COMMIT  → go test -c && git commit
+  4. RUN     → bench-note run
+  5. PUBLISH → autoresearch-cli publish (EVERY iteration, not just keeps)
+  6. DECIDE  → keep or git reset --hard HEAD~1
+  7. GOTO 1
+```
+
+**You MUST run THINK before every experiment, not just the first one.** The swarm changes between iterations — other agents may have published new results, insights, or hypotheses while you were benchmarking. If you skip THINK, you will duplicate work or miss better approaches.
 
 ### 1. THINK
 
-Read swarm state before picking an experiment. If Ensue MCP tools are available:
+**FIRST, run this command. This is not optional:**
 
-```
-search_memories(query="inference result tok/s", limit=30, prefix="@sai_ane/infer/results/")
-search_memories(query="insight", limit=10, prefix="@sai_ane/infer/insights/")
-search_memories(query="hypothesis suggestion", limit=10, prefix="@sai_ane/infer/hypotheses/")
-list_keys(prefix="@sai_ane/infer/claims/", limit=20)
-get_memory(key_names=["@sai_ane/infer/best/metadata"])
-```
-
-If Ensue is unavailable, reason from local bench-note history:
 ```bash
+./autoresearch-cli results
+```
+
+This queries the Ensue shared memory and shows all experiments from all agents. **If this returns results, you are NOT the first agent.** Study what others have tried before picking your experiment.
+
+Then gather more context:
+
+```bash
+# Search insights from other agents
+./autoresearch-cli search --query="model size throughput" --prefix=infer/insights/
+
+# Check current global best
+./autoresearch-cli best
+
+# List hypotheses to try
+./autoresearch-cli list --prefix=infer/hypotheses/
+
+# Local history (secondary — swarm data is primary)
 ./bench-note history --oneline
 ```
+
+**Do NOT skip `./autoresearch-cli results`. Do NOT assume an empty swarm based only on `bench-note history`.**
 
 ### 2. CLAIM (if Ensue available)
 
 Claim your experiment to prevent duplicate work (15-min TTL):
 
 ```
-search_memories(query="<description>", limit=5, prefix="@sai_ane/infer/claims/")
+search_memories(query="<description>", limit=5, prefix="infer/claims/")
 
 create_memory(items=[{
-  "key_name": "@sai_ane/infer/claims/<key>",
+  "key_name": "infer/claims/<key>",
   "description": "[autoresearch] Claim: <description>",
   "value": "<base64 JSON: agent_id, description, claimed_at, chip_name, chip_tier>",
   "base64": true, "embed": true, "embed_source": "description"
@@ -158,7 +182,7 @@ git add -A && git commit -m "<param> <old> -> <new>"
 ./bench-note run --benchtime=1x --count=6
 ```
 
-This runs `BenchmarkInference` (GPU, Plane, ANE sub-benchmarks), attaches results as a git note, and auto-compares against the nearest ancestor.
+This runs `BenchmarkGenerate` and `BenchmarkPrefill`, attaches results as a git note, and auto-compares against the nearest ancestor.
 
 ### 6. RECORD
 
@@ -185,56 +209,33 @@ Sanity checks — reject:
 
 ### 8. PUBLISH
 
-Publish result, insight, and hypothesis every iteration. If Ensue MCP tools are available:
+**CRITICAL: You MUST run this exact command after every benchmark. No exceptions. No manual JSON. No shortcuts.**
 
-```
-create_memory(items=[
-  {
-    "key_name": "@sai_ane/infer/results/<result_key>",
-    "description": "[autoresearch] [<agent> <STATUS>] tok/s=<tok_per_s> | <description>",
-    "value": "<base64 result JSON>",
-    "base64": true, "embed": true, "embed_source": "description"
-  },
-  {
-    "key_name": "@sai_ane/infer/insights/<insight_key>",
-    "description": "[autoresearch] Insight: <what you learned>",
-    "value": "<base64 insight JSON>",
-    "base64": true, "embed": true, "embed_source": "description"
-  },
-  {
-    "key_name": "@sai_ane/infer/hypotheses/<hypothesis_key>",
-    "description": "[autoresearch] Hypothesis: <next idea>",
-    "value": "<base64 hypothesis JSON>",
-    "base64": true, "embed": true, "embed_source": "description"
-  }
-])
+```bash
+./autoresearch-cli publish --agent=<YOUR_CODENAME> --status=<keep|discard|crash> --description="<what you changed>"
 ```
 
-If Ensue publish fails, retry once. If it fails again, log the error and continue the loop — but flag to the user that publishing is broken.
+This is the ONLY way to publish results. The tool automatically:
+- Reads the full `experiment.go` source code
+- Reads the raw benchmark output from `bench-note raw`
+- Reads the benchstat delta from `bench-note show`
+- Detects chip name/tier/TOPS
+- Parses tok/s, decode_tok/s, prefill_ms, peak_mem_gb from bench output
+- Publishes everything to the Ensue shared memory
 
-**Result JSON schema:**
-```json
-{
-  "agent_id": "<codename>",
-  "tok_per_s": 12.345,
-  "decode_tok_per_s": 15.678,
-  "prefill_ms": 234.5,
-  "peak_mem_gb": 2.1,
-  "chip_name": "Apple M4 Max",
-  "chip_tier": "ultra",
-  "ane_tops": 38,
-  "status": "keep",
-  "commit": "a1b2c3d",
-  "description": "CacheType default -> inplace",
-  "experiment_go": "<full source of experiment.go>",
-  "bench_raw": "<raw go test -bench output>",
-  "benchstat_delta": "<benchstat comparison vs previous>",
-  "completed_at": "2026-03-18T12:00:00Z",
-  "delta_vs_best": 1.23
-}
+**Do NOT manually construct result JSON. Do NOT use create_memory directly. Just run the command.**
+
+Example:
+```bash
+./autoresearch-cli publish --agent=cygnus --status=keep --description="CacheType default -> inplace"
 ```
 
-Include `bench_raw` (from `./bench-note raw`) and `benchstat_delta` (from `./bench-note show`, the benchstat section) so other agents can see the full statistical picture, not just summary numbers.
+Use `--dry-run` to preview without publishing. If the tool is missing, rebuild it:
+```bash
+cd "${CLAUDE_SKILL_DIR}/../.." && go build -o "$GOPATH_SRC/autoresearch-mlx-go-ane/publish-result" ./cmd/publish-result/
+```
+
+If `publish-result` fails, retry once. If it fails again, log the error and continue the loop — but flag to the user that publishing is broken.
 
 ### Updating Global Best
 
@@ -242,31 +243,31 @@ Only `keep` results with tok/s **strictly higher** than current best:
 
 ```
 # 1. Read current best
-get_memory(key_names=["@sai_ane/infer/best/metadata"])
+get_memory(key_names=["infer/best/metadata"])
 
 # 2. Safety checks: tok/s <= 0 reject, >100% improvement reject
 # 3. Re-read immediately before writing (minimize race)
 
 # 4. Update experiment.go source (standalone key — other agents pull this)
-update_memory(key_name="@sai_ane/infer/best/experiment_go",
+update_memory(key_name="infer/best/experiment_go",
               description="[autoresearch] Current best experiment.go source",
               value="<base64 experiment.go source>",
               base64=true, embed=true)
 
 # 5. Update metadata (preserve previous_best_* fields)
-update_memory(key_name="@sai_ane/infer/best/metadata",
+update_memory(key_name="infer/best/metadata",
               description="[autoresearch] Best result metadata",
               value="<base64 JSON with tok_per_s, agent_id, chip_name, previous_best_*>",
               base64=true, embed=true)
 
 # 6. Update per-agent best
-update_memory(key_name="@sai_ane/infer/best/agent/<codename>",
+update_memory(key_name="infer/best/agent/<codename>",
               description="[autoresearch] Best result for <codename>",
               value="<base64 JSON with tok_per_s, experiment_go, bench_raw, benchstat_delta>",
               base64=true, embed=true)
 ```
 
-Other agents can adopt the best config by pulling `@sai_ane/infer/best/experiment_go` and writing it to their local `experiment.go`.
+Other agents can adopt the best config by pulling `infer/best/experiment_go` and writing it to their local `experiment.go`.
 
 ## Safety Rules
 

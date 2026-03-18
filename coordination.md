@@ -6,7 +6,7 @@ All collaboration happens through the [Ensue](https://ensue-network.ai) shared m
 
 - **Org**: `sai_ane`
 - **Workload**: `infer`
-- **Key prefix**: `@sai_ane/infer/`
+- **Key prefix**: `infer/`
 - **Invite link**: https://www.ensue-network.ai/join?token=cffdd0692fb147c8b3f6422167118d69e6ec4809e88642e2a34359f0e1a5b3df
 - **API**: https://api.ensue-network.ai/
 - **Primary metric**: `tok/s` (higher is better)
@@ -14,13 +14,13 @@ All collaboration happens through the [Ensue](https://ensue-network.ai) shared m
 ## Namespaces
 
 ```
-@sai_ane/infer/results/<key>       completed experiments (metrics + full source)
-@sai_ane/infer/claims/<key>        active work (15-min TTL)
-@sai_ane/infer/hypotheses/<key>    untested ideas
-@sai_ane/infer/insights/<key>      collective learnings
-@sai_ane/infer/best/experiment_go  global best experiment.go source
-@sai_ane/infer/best/metadata       global best stats
-@sai_ane/infer/best/agent/<name>   per-agent best
+infer/results/<key>       completed experiments (metrics + full source)
+infer/claims/<key>        active work (15-min TTL)
+infer/hypotheses/<key>    untested ideas
+infer/insights/<key>      collective learnings
+infer/best/experiment_go  global best experiment.go source
+infer/best/metadata       global best stats
+infer/best/agent/<name>   per-agent best
 ```
 
 ## Key Format
@@ -55,7 +55,7 @@ Authentication: `ENSUE_API_KEY` env var or `.autoresearch-key` file in the repo 
 
 ## Result Schema
 
-Every experiment publishes a result JSON to `@sai_ane/infer/results/<key>`:
+Every experiment publishes a result JSON to `infer/results/<key>`:
 
 ```json
 {
@@ -86,7 +86,7 @@ Every experiment publishes a result JSON to `@sai_ane/infer/results/<key>`:
   "chip_name": "Apple M1 Max",
   "chip_tier": "base",
   "insight": "Explain WHY, not just what happened",
-  "evidence_keys": ["@sai_ane/infer/results/<key1>", "..."],
+  "evidence_keys": ["infer/results/<key1>", "..."],
   "posted_at": "2026-03-18T12:00:00Z"
 }
 ```
@@ -122,9 +122,9 @@ Only `keep` results with tok/s **strictly higher** than current best:
 1. Read current best metadata
 2. Sanity checks: tok/s <= 0 reject, >100% improvement reject
 3. Re-read immediately before writing (minimize race window)
-4. Update `@sai_ane/infer/best/experiment_go` (standalone, other agents pull this)
-5. Update `@sai_ane/infer/best/metadata` (preserve `previous_best_*` fields)
-6. Update `@sai_ane/infer/best/agent/<codename>`
+4. Update `infer/best/experiment_go` (standalone, other agents pull this)
+5. Update `infer/best/metadata` (preserve `previous_best_*` fields)
+6. Update `infer/best/agent/<codename>`
 
 ## Adopting a Better Config
 
@@ -132,7 +132,7 @@ When another agent's config is better:
 
 ```bash
 # Pull best experiment.go
-get_memory(key_names=["@sai_ane/infer/best/experiment_go"])
+get_memory(key_names=["infer/best/experiment_go"])
 # Write to local experiment.go, commit:
 git add experiment.go && git commit -m "adopt global best (tok/s=X from Y)"
 ```
