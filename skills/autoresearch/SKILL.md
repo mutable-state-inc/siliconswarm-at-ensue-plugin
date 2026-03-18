@@ -55,7 +55,7 @@ Pick a **unique codename** — a single creative word. Check existing agents fir
 
 If Ensue MCP tools are available:
 ```
-list_keys(prefix="@travis_cline/infer/best/agent/", limit=50)
+list_keys(prefix="@sai_ane/infer/best/agent/", limit=50)
 ```
 
 Pick a name NOT in that list. Draw from mythology, astronomy, nature, science.
@@ -69,11 +69,11 @@ Run forever. Each iteration:
 Read swarm state before picking an experiment. If Ensue MCP tools are available:
 
 ```
-search_memories(query="inference result tok/s", limit=30, prefix="@travis_cline/infer/results/")
-search_memories(query="insight", limit=10, prefix="@travis_cline/infer/insights/")
-search_memories(query="hypothesis suggestion", limit=10, prefix="@travis_cline/infer/hypotheses/")
-list_keys(prefix="@travis_cline/infer/claims/", limit=20)
-get_memory(key_names=["@travis_cline/infer/best/metadata"])
+search_memories(query="inference result tok/s", limit=30, prefix="@sai_ane/infer/results/")
+search_memories(query="insight", limit=10, prefix="@sai_ane/infer/insights/")
+search_memories(query="hypothesis suggestion", limit=10, prefix="@sai_ane/infer/hypotheses/")
+list_keys(prefix="@sai_ane/infer/claims/", limit=20)
+get_memory(key_names=["@sai_ane/infer/best/metadata"])
 ```
 
 If Ensue is unavailable, reason from local bench-note history:
@@ -86,10 +86,10 @@ If Ensue is unavailable, reason from local bench-note history:
 Claim your experiment to prevent duplicate work (15-min TTL):
 
 ```
-search_memories(query="<description>", limit=5, prefix="@travis_cline/infer/claims/")
+search_memories(query="<description>", limit=5, prefix="@sai_ane/infer/claims/")
 
 create_memory(items=[{
-  "key_name": "@travis_cline/infer/claims/<key>",
+  "key_name": "@sai_ane/infer/claims/<key>",
   "description": "[autoresearch] Claim: <description>",
   "value": "<base64 JSON: agent_id, description, claimed_at, chip_name, chip_tier>",
   "base64": true, "embed": true, "embed_source": "description"
@@ -160,19 +160,19 @@ Publish result, insight, and hypothesis every iteration. If Ensue MCP tools are 
 ```
 create_memory(items=[
   {
-    "key_name": "@travis_cline/infer/results/<result_key>",
+    "key_name": "@sai_ane/infer/results/<result_key>",
     "description": "[autoresearch] [<agent> <STATUS>] tok/s=<tok_per_s> | <description>",
     "value": "<base64 result JSON>",
     "base64": true, "embed": true, "embed_source": "description"
   },
   {
-    "key_name": "@travis_cline/infer/insights/<insight_key>",
+    "key_name": "@sai_ane/infer/insights/<insight_key>",
     "description": "[autoresearch] Insight: <what you learned>",
     "value": "<base64 insight JSON>",
     "base64": true, "embed": true, "embed_source": "description"
   },
   {
-    "key_name": "@travis_cline/infer/hypotheses/<hypothesis_key>",
+    "key_name": "@sai_ane/infer/hypotheses/<hypothesis_key>",
     "description": "[autoresearch] Hypothesis: <next idea>",
     "value": "<base64 hypothesis JSON>",
     "base64": true, "embed": true, "embed_source": "description"
@@ -207,7 +207,7 @@ If Ensue publish fails, retry once. If it fails again, log the error and continu
 Only `keep` results with tok/s **strictly higher** than current best:
 
 ```
-get_memory(key_names=["@travis_cline/infer/best/metadata"])
+get_memory(key_names=["@sai_ane/infer/best/metadata"])
 ```
 
 Safety checks:

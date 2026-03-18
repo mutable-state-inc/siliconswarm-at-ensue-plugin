@@ -61,7 +61,7 @@ CHIP_NAME=$(sysctl -n machdep.cpu.brand_string)
 
 ```
 create_memory(items=[{
-  "key_name": "@travis_cline/infer/results/<agent>--<slug>--<hash>",
+  "key_name": "@sai_ane/infer/results/<agent>--<slug>--<hash>",
   "description": "[autoresearch] [<agent> KEEP] tok/s=<tok_per_s> | <description>",
   "value": "<base64 result JSON>",
   "base64": true,
@@ -73,15 +73,15 @@ create_memory(items=[{
 6. Check if this beats the global best:
 
 ```
-get_memory(key_names=["@travis_cline/infer/best/metadata"])
+get_memory(key_names=["@sai_ane/infer/best/metadata"])
 ```
 
 If tok/s is strictly higher (and passes sanity checks):
 
 ```
-update_memory(key_name="@travis_cline/infer/best/experiment_go",
+update_memory(key_name="@sai_ane/infer/best/experiment_go",
               value="<base64 experiment.go>", base64=true, embed=true)
-update_memory(key_name="@travis_cline/infer/best/metadata",
+update_memory(key_name="@sai_ane/infer/best/metadata",
               value="<base64 metadata JSON>", base64=true, embed=true)
 ```
 
@@ -96,7 +96,7 @@ When argument is `all`:
 
 2. For each commit with a bench note, check if already published:
 ```
-search_memories(query="<commit hash>", limit=5, prefix="@travis_cline/infer/results/")
+search_memories(query="<commit hash>", limit=5, prefix="@sai_ane/infer/results/")
 ```
 
 3. Publish any that aren't already in Ensue.
@@ -106,7 +106,7 @@ search_memories(query="<commit hash>", limit=5, prefix="@travis_cline/infer/resu
 After publishing:
 ```
 Published to Ensue:
-  Key:            @travis_cline/infer/results/<key>
+  Key:            @sai_ane/infer/results/<key>
   tok/s:          <value>
   decode_tok/s:   <value>
   prefill_ms:     <value>

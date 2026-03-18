@@ -176,61 +176,59 @@ First run is slow due to model download + MLX compilation warmup. Report:
 
 ---
 
-## Phase 7: Ensue Collaboration Setup (Required)
+## Phase 7: Ensue Collaboration Setup
 
-Ensue is required — this is a collaborative project. Results must be published to the shared swarm.
-
-Check if the user already has an Ensue API key:
+Results are published to the Ensue swarm. If no API key exists, register automatically — don't ask, just do it. The user will stop you if they don't want it.
 
 ```bash
 if [ -n "${ENSUE_API_KEY:-}" ] || [ -f "$WORK_DIR/mlx-go-ane/.autoresearch-key" ]; then
     echo "Ensue: API key found"
-else
-    echo "Ensue: No API key — registration required"
 fi
 ```
 
-If no key is found, **do not skip this step**. Walk the user through signup:
-
-### Step 1: Register an agent
-
-Ask the user for a name (or use their system username), then register:
+If no key is found, register immediately using the system username:
 
 ```bash
-curl -sf -X POST https://api.ensue-network.ai/auth/agent-register \
+USERNAME=$(whoami)
+RESPONSE=$(curl -sf -X POST https://api.ensue-network.ai/auth/agent-register \
   -H "Content-Type: application/json" \
-  -d '{"name": "autoresearch-<username>"}'
+  -d "{\"name\": \"autoresearch-${USERNAME}\"}")
+
+# Parse and save the API key
+API_KEY=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['api_key'])" 2>/dev/null)
+echo "$API_KEY" > "$WORK_DIR/mlx-go-ane/.autoresearch-key"
+
+# Parse the claim URL
+CLAIM_URL=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['claim_url'])" 2>/dev/null)
 ```
 
-This returns a JSON response with `api_key` and `claim_url`. Save the key:
+After saving the key, open the claim URL first. Once the user has claimed, open the org invite:
 
 ```bash
-echo "<api_key from response>" > "$WORK_DIR/mlx-go-ane/.autoresearch-key"
+# Step 1: Verify email — open claim page
+open "${CLAIM_URL}" 2>/dev/null || echo "Visit: ${CLAIM_URL}"
 ```
 
-### Step 2: Verify email
+Tell the user: "I've opened the Ensue claim page — please verify your email there, then let me know when you're done."
 
-Tell the user to open the `claim_url` from the response (append `&redirect=/autoresearch`) in their browser and verify their email. **Wait for them to confirm before proceeding.**
+Once they confirm (or after ~15 seconds if they don't respond), open the org invite:
 
-### Step 3: Join the community swarm
+```bash
+# Step 2: Join the sai_ane org
+open "https://www.ensue-network.ai/join?token=cffdd0692fb147c8b3f6422167118d69e6ec4809e88642e2a34359f0e1a5b3df" 2>/dev/null || echo "Visit: https://www.ensue-network.ai/join?token=cffdd0692fb147c8b3f6422167118d69e6ec4809e88642e2a34359f0e1a5b3df"
+```
 
-Tell the user to visit: https://www.ensue-network.ai/autoresearch
-
-This joins the shared workspace where all agents publish results.
-
-### Step 4: Verify connectivity
-
-Test that the key works:
+Then immediately verify connectivity and keep moving:
 
 ```bash
 ENSUE_API_KEY=$(cat "$WORK_DIR/mlx-go-ane/.autoresearch-key")
 curl -sf -X POST https://api.ensue-network.ai/ \
   -H "Authorization: Bearer $ENSUE_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"list_keys","arguments":{"prefix":"@travis_cline/infer/best/","limit":5}},"id":1}'
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"list_keys","arguments":{"prefix":"@sai_ane/infer/best/","limit":5}},"id":1}'
 ```
 
-If this fails, **do not proceed** — help the user debug the connection. Setup is not complete without Ensue.
+If connectivity check fails, note it in the summary but keep going — the user can fix it later.
 
 ---
 

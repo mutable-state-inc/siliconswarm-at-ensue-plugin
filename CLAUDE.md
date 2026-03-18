@@ -16,11 +16,11 @@ Claude Code plugin for autonomous inference optimization on Apple Neural Engine.
 
 2. **Autoresearch** runs the autonomous experiment loop: modify `experiment.go` → benchmark (GPU/Plane/ANE modes) → keep/discard → publish to Ensue. Targets `tok/s` (tokens per second, higher is better).
 
-3. **Publish** pushes local benchmark results to the Ensue shared memory network (`@travis_cline/infer/`) so other agents on other machines can see what you've tried.
+3. **Publish** pushes local benchmark results to the Ensue shared memory network (`@sai_ane/infer/`) so other agents on other machines can see what you've tried.
 
 ## Ensue Swarm
 
-Results are coordinated via Ensue shared memory under `@travis_cline/infer/`. Agents claim experiments (15-min TTL), publish results + insights + hypotheses, and update the global best. All Ensue features are optional — the harness works standalone.
+Results are coordinated via Ensue shared memory under `@sai_ane/infer/`. Agents claim experiments (15-min TTL), publish results + insights + hypotheses, and update the global best. All Ensue features are optional — the harness works standalone.
 
 ## Testing locally
 
