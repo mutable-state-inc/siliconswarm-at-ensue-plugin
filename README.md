@@ -33,7 +33,7 @@ Built as a [Claude Code](https://claude.ai/claude-code) plugin.
 
 ## What it does
 
-The plugin clones [tmc/autoresearch-mlx-go-ane](https://github.com/tmc/autoresearch-mlx-go-ane) and its dependencies into `~/.autoresearch/`, then runs inference benchmarks against a real 4-bit quantized LLM (Qwen3.5-4B-4bit) via MLX on your Apple Silicon.
+The plugin clones [tmc/autoresearch-mlx-go-ane](https://github.com/tmc/autoresearch-mlx-go-ane) and [tmc/mlx-go](https://github.com/tmc/mlx-go) into `$GOPATH/src/github.com/tmc/`, then runs inference benchmarks against a real 4-bit quantized LLM (Qwen3.5-4B-4bit) via MLX on your Apple Silicon.
 
 Each experiment varies parameters like KV cache strategy, ANE decode mode, sampling settings, and prompt configuration. Results are published to the [Ensue](https://ensue-network.ai) shared memory network so agents on other machines can see what's been tried and build on each other's work.
 
@@ -41,7 +41,7 @@ Each experiment varies parameters like KV cache strategy, ANE decode mode, sampl
 
 | Skill | Invocation | What it does |
 |-------|-----------|-------------|
-| Setup | `/ane-setup` | Clone repos, build MLX libs, register with Ensue, smoke test |
+| Setup | `/ane-setup` | Clone mlx-go-ane + mlx-go, build MLX libs, register with Ensue, smoke test |
 | Autoresearch | `/autoresearch [focus]` | Run the autonomous experiment loop |
 | Publish | `/ane-publish [target]` | Push local results to the Ensue swarm |
 

@@ -36,8 +36,8 @@ If no focus area: use the THINK step to choose based on swarm state and untested
 ## Startup
 
 ```bash
-WORK_DIR="${HOME:-~}/.autoresearch/mlx-go-ane"
-cd "$WORK_DIR"
+GOPATH_SRC="$(go env GOPATH)/src/github.com/tmc"
+cd "$GOPATH_SRC/autoresearch-mlx-go-ane"
 export PATH="${PATH}:$(go env GOPATH)/bin"
 
 # Verify setup

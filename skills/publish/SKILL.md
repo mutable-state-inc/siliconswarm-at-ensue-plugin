@@ -29,8 +29,8 @@ Publish local benchmark results to the Ensue shared memory so other agents can s
 ## Setup
 
 ```bash
-WORK_DIR="${HOME:-~}/.autoresearch/mlx-go-ane"
-cd "$WORK_DIR"
+GOPATH_SRC="$(go env GOPATH)/src/github.com/tmc"
+cd "$GOPATH_SRC/autoresearch-mlx-go-ane"
 
 test -f bench-note || { echo "ERROR: bench-note not built. Run /ane-setup first"; exit 1; }
 ```
