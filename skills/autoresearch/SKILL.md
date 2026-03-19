@@ -201,6 +201,10 @@ If you've tried all the obvious constants and tok/s stops improving, do NOT stop
 6. **Add new constants** — you can add new exported constants to experiment.go that the harness may pick up. Read harness.go to see what it looks for.
 7. **Publish hypotheses** — even if you can't test something, publish it as a hypothesis for other agents.
 
+#### mlx-go API
+
+experiment.go can import and call mlx-go APIs in `init()`. Read the source at `$GOPATH/src/github.com/tmc/mlx-go/mlx/` and `$GOPATH/src/github.com/tmc/mlx-go-lm/mlxlm/decode/` to find levers. Key APIs: `mlx.SetCacheLimit()`, `mlx.SetMemoryLimit()`, `mlx.SetCompileMode()`. Key env vars (set via `os.Setenv` in init()): `MLXGO_DECODE_OVERLAP`, `MLXGO_DECODE_COMPILED_PURE`, `MLXGO_DECODE_ASYNC_MULTI_EVAL`, `MLXGO_DECODE_SEPARATE_STREAM`, `MLXGO_DECODE_FREE_QUEUE_THRESHOLD`, `MLXGO_DECODE_IMMEDIATE_SCOPE_FREE`.
+
 ### 4. COMMIT
 
 ```bash

@@ -66,6 +66,10 @@ func main() {
 		err = cmdBest(args)
 	case "results":
 		err = cmdResults(args)
+	case "insight":
+		err = cmdInsight(args)
+	case "hypothesis":
+		err = cmdHypothesis(args)
 	default:
 		usage()
 	}
@@ -96,6 +100,12 @@ Commands:
   best      Show the current global best result.
 
   results   List all experiment results with metrics.
+
+  insight   --agent=NAME --text="what you learned and WHY"
+            Publish an insight to the shared memory.
+
+  hypothesis --agent=NAME --title="short title" --text="what to try and why"
+            Publish a hypothesis for other agents to test.
 `)
 	os.Exit(2)
 }
@@ -524,6 +534,119 @@ func cmdResults(_ []string) error {
 
 	printEnsueResult(result)
 	return nil
+}
+
+// --- insight ---
+
+func cmdInsight(args []string) error {
+	var agent, text string
+	for _, a := range args {
+		switch {
+		case strings.HasPrefix(a, "--agent="):
+			agent = strings.TrimPrefix(a, "--agent=")
+		case strings.HasPrefix(a, "--text="):
+			text = strings.TrimPrefix(a, "--text=")
+		}
+	}
+	if agent == "" || text == "" {
+		return fmt.Errorf("--agent and --text are required")
+	}
+
+	apiKey := requireKey()
+	chipName, chipTier, _ := detectChip()
+
+	insight := map[string]interface{}{
+		"agent_id":  agent,
+		"chip_name": chipName,
+		"chip_tier": chipTier,
+		"insight":   text,
+		"posted_at": time.Now().UTC().Format(time.RFC3339),
+	}
+	insightJSON, _ := json.Marshal(insight)
+
+	key := experimentKey(agent, text)
+	items := []map[string]interface{}{
+		{
+			"key_name":     keyPrefix() + "/insights/" + key,
+			"description":  fmt.Sprintf("[autoresearch] Insight from %s: %s", agent, truncate(text, 80)),
+			"value":        base64.StdEncoding.EncodeToString(insightJSON),
+			"base64":       true,
+			"embed":        true,
+			"embed_source": "description",
+		},
+	}
+
+	if err := ensueRPC(apiKey, "create_memory", map[string]interface{}{"items": items}); err != nil {
+		return fmt.Errorf("publish insight failed: %w", err)
+	}
+
+	fmt.Printf("published insight: %s\n", truncate(text, 80))
+	return nil
+}
+
+// --- hypothesis ---
+
+func cmdHypothesis(args []string) error {
+	var agent, title, text string
+	priority := 3
+	for _, a := range args {
+		switch {
+		case strings.HasPrefix(a, "--agent="):
+			agent = strings.TrimPrefix(a, "--agent=")
+		case strings.HasPrefix(a, "--title="):
+			title = strings.TrimPrefix(a, "--title=")
+		case strings.HasPrefix(a, "--text="):
+			text = strings.TrimPrefix(a, "--text=")
+		case strings.HasPrefix(a, "--priority="):
+			v, _ := strconv.Atoi(strings.TrimPrefix(a, "--priority="))
+			if v > 0 {
+				priority = v
+			}
+		}
+	}
+	if agent == "" || title == "" || text == "" {
+		return fmt.Errorf("--agent, --title, and --text are required")
+	}
+
+	apiKey := requireKey()
+	chipName, chipTier, _ := detectChip()
+
+	hypothesis := map[string]interface{}{
+		"agent_id":   agent,
+		"chip_name":  chipName,
+		"chip_tier":  chipTier,
+		"title":      title,
+		"hypothesis": text,
+		"priority":   priority,
+		"created_at": time.Now().UTC().Format(time.RFC3339),
+	}
+	hypothesisJSON, _ := json.Marshal(hypothesis)
+
+	key := experimentKey(agent, title)
+	items := []map[string]interface{}{
+		{
+			"key_name":     keyPrefix() + "/hypotheses/" + key,
+			"description":  fmt.Sprintf("[autoresearch] Hypothesis from %s: %s", agent, truncate(title, 80)),
+			"value":        base64.StdEncoding.EncodeToString(hypothesisJSON),
+			"base64":       true,
+			"embed":        true,
+			"embed_source": "description",
+		},
+	}
+
+	if err := ensueRPC(apiKey, "create_memory", map[string]interface{}{"items": items}); err != nil {
+		return fmt.Errorf("publish hypothesis failed: %w", err)
+	}
+
+	fmt.Printf("published hypothesis: %s\n", truncate(title, 80))
+	return nil
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
 }
 
 // --- Ensue RPC helpers ---
