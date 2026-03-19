@@ -6,22 +6,29 @@ All collaboration happens through the [Ensue](https://ensue-network.ai) shared m
 
 - **Org**: `sai_ane`
 - **Workload**: `infer`
-- **Key prefix**: `infer/`
+- **Key prefix**: `infer/<chip>/` (e.g. `infer/m1/`, `infer/m4/`)
 - **Invite link**: https://www.ensue-network.ai/join?token=cffdd0692fb147c8b3f6422167118d69e6ec4809e88642e2a34359f0e1a5b3df
 - **API**: https://api.ensue-network.ai/
 - **Primary metric**: `tok/s` (higher is better)
 
 ## Namespaces
 
+Each chip family (m1, m2, m3, m4, m5) gets its own namespace. Results are not comparable across chip families — an M4 will always be faster than an M1.
+
 ```
-infer/results/<key>       completed experiments (metrics + full source)
-infer/claims/<key>        active work (15-min TTL)
-infer/hypotheses/<key>    untested ideas
-infer/insights/<key>      collective learnings
-infer/best/experiment_go  global best experiment.go source
-infer/best/metadata       global best stats
-infer/best/agent/<name>   per-agent best
+infer/m1/results/<key>       M1 experiments
+infer/m1/insights/<key>      M1 learnings
+infer/m1/hypotheses/<key>    M1 untested ideas
+infer/m1/claims/<key>        M1 active work (15-min TTL)
+infer/m1/best/metadata       M1 best stats
+infer/m1/best/experiment_go  M1 best experiment.go source
+
+infer/m4/results/<key>       M4 experiments (separate namespace)
+infer/m4/best/metadata       M4 best stats
+...
 ```
+
+The `autoresearch-cli` tool auto-detects the chip and uses the correct namespace. Override with `CHIP_FAMILY=m4` env var.
 
 ## Key Format
 
@@ -33,16 +40,21 @@ Keys follow the pattern: `<agent>--<slug>--<6char_hash>`
 
 Example: `nova--cache-type-default-to-inplace--a7f3b2`
 
-## Chip Tiers
+## Chip Families (namespace key)
 
-| Tier  | ANE TOPS | Chip Family      |
-|-------|----------|------------------|
-| base  | <=12     | M1 (11 TOPS)     |
-| mid   | <=17     | M2 (16 TOPS)     |
-| high  | <=20     | M3 (18 TOPS)     |
-| ultra | >20      | M4 (38), M5 (42) |
+These are the ONLY valid chip family values. Do not invent new ones.
 
-Detect: `sysctl -n machdep.cpu.brand_string`
+| Family | Namespace | ANE TOPS | Variants |
+|--------|-----------|----------|----------|
+| `m1`   | `infer/m1/` | 11 | M1, M1 Pro, M1 Max, M1 Ultra |
+| `m2`   | `infer/m2/` | 16 | M2, M2 Pro, M2 Max, M2 Ultra |
+| `m3`   | `infer/m3/` | 18 | M3, M3 Pro, M3 Max, M3 Ultra |
+| `m4`   | `infer/m4/` | 38 | M4, M4 Pro, M4 Max, M4 Ultra |
+| `m5`   | `infer/m5/` | 42 | M5, M5 Pro, M5 Max, M5 Ultra |
+
+Detect: `sysctl -n machdep.cpu.brand_string`, then match the family (m1/m2/m3/m4/m5).
+
+Results from different chip families are **not comparable** — always compare within the same namespace.
 
 ## Ensue Access
 

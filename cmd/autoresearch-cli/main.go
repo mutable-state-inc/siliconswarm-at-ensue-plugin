@@ -36,14 +36,32 @@ const (
 	defaultWork = "infer"
 )
 
+// chipFamily returns the Apple Silicon family name: m1, m2, m3, m4, m5.
+func chipFamily() string {
+	if f := os.Getenv("CHIP_FAMILY"); f != "" {
+		return f
+	}
+	out, err := exec.Command("sysctl", "-n", "machdep.cpu.brand_string").Output()
+	if err != nil {
+		return "unknown"
+	}
+	chip := strings.ToLower(string(out))
+	for _, f := range []string{"m5", "m4", "m3", "m2", "m1"} {
+		if strings.Contains(chip, f) {
+			return f
+		}
+	}
+	return "unknown"
+}
+
 // keyPrefix returns the org-qualified prefix for shared memory keys.
-// Members of the org must use @org/ prefix to write to the shared namespace.
+// Each chip family gets its own namespace: @org/infer/m1/, @org/infer/m4/, etc.
 func keyPrefix() string {
 	org := os.Getenv("ENSUE_ORG")
 	if org == "" {
 		org = defaultOrg
 	}
-	return "@" + org + "/" + defaultWork
+	return "@" + org + "/" + defaultWork + "/" + chipFamily()
 }
 
 func main() {
@@ -343,14 +361,6 @@ func updateBestIfNeeded(apiKey string, result Result, resultJSON []byte) {
 			"key_name":     bestKey,
 			"description":  bestDesc,
 			"value":        base64.StdEncoding.EncodeToString(resultJSON),
-			"base64":       true,
-			"embed":        true,
-			"embed_source": "description",
-		},
-		{
-			"key_name":     keyPrefix() + "/best/experiment_go",
-			"description":  fmt.Sprintf("[autoresearch] Best experiment.go (tok/s=%.1f by %s)", result.TokPerS, result.AgentID),
-			"value":        base64.StdEncoding.EncodeToString([]byte(result.ExperimentGo)),
 			"base64":       true,
 			"embed":        true,
 			"embed_source": "description",

@@ -80,9 +80,8 @@ Read these files at startup: `experiment.go` (your canvas), `program.md`, `harne
 
 Pick a **unique codename** — a single creative word. Check existing agents first:
 
-If Ensue MCP tools are available:
-```
-list_keys(prefix="infer/best/agent/", limit=50)
+```bash
+./autoresearch-cli list --prefix=@sai_ane/infer/m1/best/agent/
 ```
 
 Pick a name NOT in that list. Draw from mythology, astronomy, nature, science.
@@ -142,20 +141,11 @@ Print the output. These are ideas from other agents that haven't been tested yet
 
 ### 2. CLAIM (if Ensue available)
 
-Claim your experiment to prevent duplicate work (15-min TTL):
+Claim your experiment to prevent duplicate work (15-min TTL). Use `autoresearch-cli` to check for similar claims:
 
+```bash
+./autoresearch-cli search --query="<your experiment description>" --prefix=@sai_ane/infer/<chip>/claims/
 ```
-search_memories(query="<description>", limit=5, prefix="infer/claims/")
-
-create_memory(items=[{
-  "key_name": "infer/claims/<key>",
-  "description": "[autoresearch] Claim: <description>",
-  "value": "<base64 JSON: agent_id, description, claimed_at, chip_name, chip_tier>",
-  "base64": true, "embed": true, "embed_source": "description"
-}])
-```
-
-Key format: `<agent>--<slug>--<6char_hash>`
 
 ### 3. HACK
 
@@ -277,33 +267,12 @@ If `publish-result` fails, retry once. If it fails again, log the error and cont
 
 Only `keep` results with tok/s **strictly higher** than current best:
 
+The `autoresearch-cli publish` command handles best-update automatically. When your result beats the current best for your chip, it updates `infer/<chip>/best/metadata` which contains the full result JSON including `experiment_go`, `bench_raw`, and all metrics.
+
+To read another chip's best:
+```bash
+./autoresearch-cli get --key=@sai_ane/infer/m4/best/metadata
 ```
-# 1. Read current best
-get_memory(key_names=["infer/best/metadata"])
-
-# 2. Safety checks: tok/s <= 0 reject, >100% improvement reject
-# 3. Re-read immediately before writing (minimize race)
-
-# 4. Update experiment.go source (standalone key — other agents pull this)
-update_memory(key_name="infer/best/experiment_go",
-              description="[autoresearch] Current best experiment.go source",
-              value="<base64 experiment.go source>",
-              base64=true, embed=true)
-
-# 5. Update metadata (preserve previous_best_* fields)
-update_memory(key_name="infer/best/metadata",
-              description="[autoresearch] Best result metadata",
-              value="<base64 JSON with tok_per_s, agent_id, chip_name, previous_best_*>",
-              base64=true, embed=true)
-
-# 6. Update per-agent best
-update_memory(key_name="infer/best/agent/<codename>",
-              description="[autoresearch] Best result for <codename>",
-              value="<base64 JSON with tok_per_s, experiment_go, bench_raw, benchstat_delta>",
-              base64=true, embed=true)
-```
-
-Other agents can adopt the best config by pulling `infer/best/experiment_go` and writing it to their local `experiment.go`.
 
 ## Safety Rules
 
