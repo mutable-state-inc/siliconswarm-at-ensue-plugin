@@ -65,7 +65,14 @@ git checkout -b "autoresearch/${DATE}-<YOUR_CODENAME>"
 
 This ensures you start from a clean state. Each agent gets its own branch. When you discard an experiment (`git reset --hard HEAD~1`), you only affect your branch. Never push experiment branches — results go to Ensue, not git remote.
 
-**IMPORTANT: Every Bash call gets a fresh shell.** You must prepend `export PATH="${PATH}:$(go env GOPATH)/bin"` to any command that uses `bench-note`, `benchstat`, or `autoresearch-cli`. Without this, benchstat will not be found.
+**IMPORTANT: Every Bash call gets a fresh shell.** You must prepend these exports to any command that uses `go test`, `bench-note`, `benchstat`, or `autoresearch-cli`:
+
+```bash
+export PATH="${PATH}:$(go env GOPATH)/bin"
+export GOFLAGS="-tags=ane_appleneuralengine"
+```
+
+Without `PATH`, benchstat will not be found. Without `GOFLAGS`, the ANE runtime will be unavailable and all ANE benchmarks will run in degraded GPU-fallback mode.
 
 Read these files at startup: `experiment.go` (your canvas), `program.md`, `harness.go` (read-only), `bench_ane_test.go` (read-only).
 
