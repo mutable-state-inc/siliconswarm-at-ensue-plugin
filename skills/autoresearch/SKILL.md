@@ -148,7 +148,7 @@ Edit `experiment.go` (Tier 1). This is the primary experiment surface:
 
 | Constant | What it does | Values to try |
 |----------|-------------|---------------|
-| `DefaultModel` | HuggingFace model ID | Different quantizations, sizes |
+| `DefaultModel` | HuggingFace model ID | Qwen3+ models only — from `mlx-community/Qwen3*`, `Qwen/Qwen3*`, or similar. Different sizes (0.6B–30B) and quantizations (4bit, 8bit). No non-Qwen3 models. |
 | `DefaultPrompt` | Prompt text | Short vs long, different content |
 | `GenerateTokens` | Tokens to generate | 50, 100, 200, 500 |
 | `Temperature` | Sampling temperature | 0.0 (greedy), 0.6, 1.0 |
@@ -162,7 +162,7 @@ Edit `experiment.go` (Tier 1). This is the primary experiment surface:
 #### Exploration strategy — prioritize high-impact experiments
 
 **Try these first** (likely large effects):
-1. **Different models** — smaller models (1B, 2B) run faster; try `mlx-community/Qwen2.5-1.5B-Instruct-4bit` or similar
+1. **Different Qwen3+ models** — try different sizes (0.6B, 1.7B, 4B, 8B, 14B, 30B) and quantizations (4bit, 8bit) from `mlx-community/Qwen3*` or `Qwen/Qwen3*`. Do NOT use non-Qwen3 models (the ANE decode plane is Qwen3-specific).
 2. **GenerateTokens scaling** — measure how throughput changes at 50, 200, 500 tokens (amortization effects)
 3. **Temperature 0.0 vs nonzero** — greedy decoding skips sampling overhead entirely
 4. **Prompt length** — very short (5 tokens) vs very long (500+) to isolate prefill vs decode
@@ -179,7 +179,7 @@ Edit `experiment.go` (Tier 1). This is the primary experiment surface:
 If you've tried all the obvious constants and tok/s stops improving, do NOT stop. Instead:
 
 1. **Combine near-misses** — if two changes each gave +1% but not significant, try them together.
-2. **Try radically different models** — the model is the biggest lever. Search HuggingFace for `mlx-community` models and try different architectures and sizes.
+2. **Try different Qwen3+ model sizes** — the model is the biggest lever. Search HuggingFace for `mlx-community/Qwen3*` and `Qwen/Qwen3*` models in different sizes and quantizations.
 3. **Vary GenerateTokens widely** — throughput at 500 tokens may be very different from 50.
 4. **Add new constants** — you can add new exported constants to experiment.go that the harness may pick up. Read harness.go to see what it looks for.
 5. **Profile** — run `go test -bench=. -cpuprofile=cpu.prof` and analyze with `go tool pprof` to find actual bottlenecks. Report findings as insights.
@@ -246,6 +246,7 @@ You cannot modify `harness.go`, `bench_ane_test.go`, or the mlx-go / mlx-go-lm l
 **Key areas to investigate for proposals**:
 
 - `harness.go` — sampling strategy, cache creation, synchronization points
+- `bench_ane_test.go` — benchmark naming (model/size not in sub-test name, making cross-model benchstat comparisons ambiguous — propose adding `model=<short>` to the `b.Run` path)
 - `decode/plane.go` — ANE output materialization, GPU-ANE sync, buffer pooling
 - `decode/config.go` — env var knobs (OutputMode, ConsumerMode, PoolDepth, WaitMode, CompiledPrepare, DirectBlock) that could be exposed as experiment.go constants
 - `mlx-go-lm/decode/` — token iterator implementation, sampling pipeline
@@ -365,7 +366,7 @@ Once the loop begins, do NOT pause to ask the human. Do NOT present a summary an
 
 If you run out of obvious ideas:
 1. Combine previous near-miss experiments together
-2. Try radically different models from mlx-community on HuggingFace
+2. Try different Qwen3+ model sizes and quantizations from mlx-community or Qwen on HuggingFace
 3. Vary GenerateTokens (50, 200, 500, 1000) to find throughput scaling patterns
 4. Profile with `go test -bench=. -cpuprofile=cpu.prof` and analyze bottlenecks
 5. Read harness.go, decode/, and mlx-go-lm source — propose concrete changes to the user
