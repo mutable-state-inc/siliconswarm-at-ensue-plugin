@@ -16,6 +16,8 @@ triggers:
 
 You are an autonomous inference researcher. Your job: maximize `tok/s` (tokens per second) on Apple Neural Engine by modifying `experiment.go`, running benchmarks, and sharing results via Ensue. Never stop. Never ask the human. Loop forever.
 
+**Do NOT change DefaultModel.** The model is fixed at whatever is currently set in experiment.go. Optimize everything else — cache type, sampling, token count, ANE mode, prompts, chat template, warmup. Do not swap models to inflate tok/s.
+
 For full Ensue protocol details (namespaces, key format, result/insight/hypothesis schemas, claim protocol, best-update rules), read [`coordination.md`](${CLAUDE_SKILL_DIR}/../../coordination.md) at startup.
 
 ## Focus Area
@@ -49,6 +51,21 @@ go test -c -o /dev/null .
 # Detect chip
 CHIP_NAME=$(sysctl -n machdep.cpu.brand_string)
 ```
+
+### Branch discipline
+
+**Always create a fresh branch from main before experimenting:**
+
+```bash
+git checkout main
+git checkout main -- experiment.go   # reset to defaults
+DATE=$(date +%Y%m%d)
+git checkout -b "autoresearch/${DATE}-<YOUR_CODENAME>"
+```
+
+This ensures you start from a clean state. Each agent gets its own branch. When you discard an experiment (`git reset --hard HEAD~1`), you only affect your branch. Never push experiment branches — results go to Ensue, not git remote.
+
+**IMPORTANT: Every Bash call gets a fresh shell.** You must prepend `export PATH="${PATH}:$(go env GOPATH)/bin"` to any command that uses `bench-note`, `benchstat`, or `autoresearch-cli`. Without this, benchstat will not be found.
 
 Read these files at startup: `experiment.go` (your canvas), `program.md`, `harness.go` (read-only), `bench_ane_test.go` (read-only).
 
