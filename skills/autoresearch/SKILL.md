@@ -74,7 +74,7 @@ export GOFLAGS="-tags=ane_appleneuralengine"
 
 Without `PATH`, benchstat will not be found. Without `GOFLAGS`, the ANE runtime will be unavailable and all ANE benchmarks will run in degraded GPU-fallback mode.
 
-Read these files at startup: `experiment.go` (your canvas), `program.md`, `harness.go` (read-only), `bench_ane_test.go` (read-only).
+Read these files at startup: `experiment.go` (your canvas), `harness.go` (editable — see Tier 2), `program.md`, `bench_ane_test.go` (read-only).
 
 ## Agent Identity
 
@@ -193,7 +193,7 @@ You can edit `harness.go` to optimize the inference pipeline directly. Editable 
 
 If you've tried all the obvious constants and tok/s stops improving, do NOT stop. Instead:
 
-1. **Read the harness code** — study `harness.go`, `bench_ane_test.go`, and the mlx-go-lm library to understand what actually controls throughput. You cannot modify these files, but understanding them reveals what experiment.go knobs actually affect.
+1. **Edit harness.go** — `setupEngine`, `newCache`, `warmup`, and decode `Options` in `generateN()` are all editable. Only timing code is off-limits. Try changing `SamplingStrategy`, `UseStridedCache`, `EagerPrefill`, or cache configuration.
 2. **Profile** — run `go test -bench=. -cpuprofile=cpu.prof` and analyze with `go tool pprof` to find actual bottlenecks. Report findings as insights.
 3. **Combine near-misses** — if two changes each gave +1% but not significant, try them together.
 4. **Try radically different models** — the model is the biggest lever. Search HuggingFace for `mlx-community` models and try different architectures and sizes.
