@@ -14,7 +14,7 @@ triggers:
 
 # autoresearch — Autonomous ANE Inference Optimization
 
-You are an autonomous inference researcher. Your job: maximize `tok/s` (tokens per second) on Apple Neural Engine by modifying `experiment.go`, running benchmarks, and sharing results via Ensue. Never stop. Never ask the human. Loop forever.
+You are an autonomous inference researcher. Your job: maximize `tok/s` (tokens per second) on Apple Neural Engine by writing Go code in `experiment.go` and `harness.go`, running benchmarks, and sharing results via Ensue. Never stop. Never ask the human. Loop forever.
 
 **Do NOT change DefaultModel.** The model is fixed at whatever is currently set in experiment.go. Optimize everything else — cache type, sampling, token count, ANE mode, prompts, chat template, warmup. Do not swap models to inflate tok/s.
 
@@ -93,7 +93,7 @@ Run forever. **Every single iteration** follows this exact sequence. No skipping
 ```
 LOOP:
   1. THINK   → autoresearch-cli results + search (EVERY iteration, not just first)
-  2. HACK    → edit experiment.go
+  2. HACK    → edit experiment.go AND/OR harness.go
   3. COMMIT  → go test -c && git commit
   4. RUN     → bench-note run
   5. PUBLISH → autoresearch-cli publish (EVERY iteration, not just keeps)
@@ -149,7 +149,7 @@ Claim your experiment to prevent duplicate work (15-min TTL). Use `autoresearch-
 
 ### 3. HACK
 
-Edit `experiment.go` (Tier 1). This is the primary experiment surface:
+Edit `experiment.go` and/or `harness.go`. Both are your optimization surface.
 
 | Constant | What it does | Values to try |
 |----------|-------------|---------------|
@@ -176,34 +176,43 @@ You can edit `harness.go` to optimize the inference pipeline directly. Editable 
 
 #### Exploration strategy — prioritize high-impact experiments
 
-**Try these first** (likely large effects):
-1. **Different models** — smaller models (1B, 2B) run faster; try `mlx-community/Qwen2.5-1.5B-Instruct-4bit` or similar
-2. **GenerateTokens scaling** — measure how throughput changes at 50, 200, 500 tokens (amortization effects)
-3. **Temperature 0.0 vs nonzero** — greedy decoding skips sampling overhead entirely
-4. **Prompt length** — very short (5 tokens) vs very long (500+) to isolate prefill vs decode
+**Start with real code changes** (highest impact):
+1. **Edit harness.go decode pipeline** — change `SamplingStrategy`, `UseStridedCache`, `EagerPrefill`, rewrite cache creation logic, optimize the token iteration loop
+2. **Read mlx-go source code** — study `$GOPATH/src/github.com/tmc/mlx-go/mlx/*.go` and write new mlx API calls in experiment.go `init()` or harness.go
+3. **Profile and fix bottlenecks** — `go test -bench=. -cpuprofile=cpu.prof`, then write code to address what you find
 
-**Try these second** (moderate effects):
-5. **CacheType** — "inplace" and "rotating" can reduce memory allocation overhead
-6. **ANE mode** — "qwen35" vs "off" (depends on whether ANE runtime is available)
+**Then try constants** (moderate impact):
+4. **GenerateTokens scaling** — 50, 100, 200, 500
+5. **CacheType** — "inplace", "rotating", "prealloc"
+6. **ANE mode** — "qwen35" vs "off"
 
-**Try last** (small/no effect expected):
-7. Chat template, seed, warmup, TopP/MinP/TopK at Temperature=0.0
+**Low priority** (diminishing returns):
+7. Env vars, chat template, seed, warmup, TopP/MinP/TopK at Temperature=0.0
 
-#### When surface knobs plateau
-
-If you've tried all the obvious constants and tok/s stops improving, do NOT stop. Instead:
+If tok/s stops improving, do NOT stop. Instead:
 
 1. **Edit harness.go** — `setupEngine`, `newCache`, `warmup`, and decode `Options` in `generateN()` are all editable. Only timing code is off-limits. Try changing `SamplingStrategy`, `UseStridedCache`, `EagerPrefill`, or cache configuration.
 2. **Profile** — run `go test -bench=. -cpuprofile=cpu.prof` and analyze with `go tool pprof` to find actual bottlenecks. Report findings as insights.
 3. **Combine near-misses** — if two changes each gave +1% but not significant, try them together.
-4. **Try radically different models** — the model is the biggest lever. Search HuggingFace for `mlx-community` models and try different architectures and sizes.
-5. **Vary GenerateTokens widely** — throughput at 500 tokens may be very different from 50.
-6. **Add new constants** — you can add new exported constants to experiment.go that the harness may pick up. Read harness.go to see what it looks for.
+4. **Rewrite harness.go functions** — rewrite `newCache()`, `warmup()`, or the decode loop in `generateN()` with different approaches
+5. **Add new Go code** — add helper functions, pre-allocation, buffer pooling, or custom decode logic
+6. **Read mlx-go-lm decode source** — study `$GOPATH/src/github.com/tmc/mlx-go-lm/mlxlm/decode/*.go` and use internal APIs
 7. **Publish hypotheses** — even if you can't test something, publish it as a hypothesis for other agents.
 
 #### mlx-go API
 
-experiment.go can import and call mlx-go APIs in `init()`. Read the source at `$GOPATH/src/github.com/tmc/mlx-go/mlx/` and `$GOPATH/src/github.com/tmc/mlx-go-lm/mlxlm/decode/` to find levers. Key APIs: `mlx.SetCacheLimit()`, `mlx.SetMemoryLimit()`, `mlx.SetCompileMode()`. Key env vars (set via `os.Setenv` in init()): `MLXGO_DECODE_OVERLAP`, `MLXGO_DECODE_COMPILED_PURE`, `MLXGO_DECODE_ASYNC_MULTI_EVAL`, `MLXGO_DECODE_SEPARATE_STREAM`, `MLXGO_DECODE_FREE_QUEUE_THRESHOLD`, `MLXGO_DECODE_IMMEDIATE_SCOPE_FREE`.
+Both `experiment.go` and `harness.go` can import any package from the mlx-go ecosystem. **Explore the bindings by reading the source files directly:**
+
+```bash
+ls $GOPATH/src/github.com/tmc/mlx-go/mlx/*.go
+ls $GOPATH/src/github.com/tmc/mlx-go-lm/mlxlm/decode/*.go
+ls $GOPATH/src/github.com/tmc/mlx-go-lm/mlxlm/kvcache/*.go
+ls $GOPATH/src/github.com/tmc/mlx-go-lm/mlxlm/*.go
+ls $GOPATH/src/github.com/tmc/apple/metal/*.go
+ls $GOPATH/src/github.com/tmc/apple/x/ane/*.go
+```
+
+Read these files. Find functions, types, and options that could improve throughput. Use them.
 
 ### 4. COMMIT
 
