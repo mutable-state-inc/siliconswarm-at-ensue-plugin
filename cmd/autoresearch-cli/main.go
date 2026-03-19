@@ -309,34 +309,12 @@ func cmdPublish(args []string) error {
 func updateBestIfNeeded(apiKey string, result Result, resultJSON []byte) {
 	bestKey := keyPrefix() + "/best/metadata"
 
-	// Read current best
-	currentBestText, err := ensueRPCResult(apiKey, "get_memory", map[string]interface{}{
-		"key_names": []string{bestKey},
-	})
+	// Read current best by decoding the memory value
+	currentBestTokPerS := readBestTokPerS(apiKey, bestKey)
 
-	var currentBestTokPerS float64
-	if err == nil && currentBestText != "" {
-		var data map[string]interface{}
-		if json.Unmarshal([]byte(currentBestText), &data) == nil {
-			if results, ok := data["results"].([]interface{}); ok && len(results) > 0 {
-				if rm, ok := results[0].(map[string]interface{}); ok {
-					if val, ok := rm["value"].(string); ok {
-						if decoded, err := base64.StdEncoding.DecodeString(val); err == nil {
-							var bestResult map[string]interface{}
-							if json.Unmarshal(decoded, &bestResult) == nil {
-								if v, ok := bestResult["tok_per_s"].(float64); ok {
-									currentBestTokPerS = v
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	if result.TokPerS <= currentBestTokPerS {
-		return // not a new best
+	if currentBestTokPerS > 0 && result.TokPerS <= currentBestTokPerS {
+		fmt.Printf("  not a new best (current: %.1f tok/s)\n", currentBestTokPerS)
+		return
 	}
 
 	// Sanity: reject >100% improvement as measurement error
@@ -371,22 +349,60 @@ func updateBestIfNeeded(apiKey string, result Result, resultJSON []byte) {
 
 	// Try update first (key exists), fall back to create (key doesn't exist)
 	for _, item := range bestItems {
+		keyName := item["key_name"].(string)
 		err := ensueRPC(apiKey, "update_memory", map[string]interface{}{
-			"key_name":    item["key_name"],
+			"key_name":    keyName,
 			"value":       item["value"],
 			"description": item["description"],
 			"base64":      true,
-			"embed":       true,
 		})
 		if err != nil {
-			// Key might not exist yet, try create
-			ensueRPC(apiKey, "create_memory", map[string]interface{}{
+			fmt.Fprintf(os.Stderr, "  update %s failed: %v, trying create\n", keyName, err)
+			err2 := ensueRPC(apiKey, "create_memory", map[string]interface{}{
 				"items": []map[string]interface{}{item},
 			})
+			if err2 != nil {
+				fmt.Fprintf(os.Stderr, "  create %s also failed: %v\n", keyName, err2)
+			}
 		}
 	}
 
 	fmt.Printf("  NEW BEST: %.1f tok/s (was %.1f)\n", result.TokPerS, currentBestTokPerS)
+}
+
+// readBestTokPerS reads the current best tok/s from Ensue.
+// Returns 0 if the key doesn't exist or can't be parsed.
+func readBestTokPerS(apiKey, bestKey string) float64 {
+	raw, err := ensueRPCRaw(apiKey, "get_memory", map[string]interface{}{
+		"key_names": []string{bestKey},
+	})
+	if err != nil {
+		return 0
+	}
+	// The response may have SSE prefix and nested JSON.
+	// Just search for "tok_per_s" in any decoded base64 values.
+	s := string(raw)
+	// Try to find base64 values and decode them
+	for _, part := range strings.Split(s, "\"value\":\"") {
+		if len(part) < 10 {
+			continue
+		}
+		end := strings.Index(part, "\"")
+		if end < 0 {
+			continue
+		}
+		decoded, err := base64.StdEncoding.DecodeString(part[:end])
+		if err != nil {
+			continue
+		}
+		var obj map[string]interface{}
+		if json.Unmarshal(decoded, &obj) == nil {
+			if v, ok := obj["tok_per_s"].(float64); ok && v > 0 {
+				return v
+			}
+		}
+	}
+	return 0
 }
 
 // --- search ---
