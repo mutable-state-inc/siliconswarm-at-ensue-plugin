@@ -106,31 +106,39 @@ LOOP:
 
 ### 1. THINK
 
-**FIRST, run this command. This is not optional:**
+**You MUST run ALL FOUR of these commands before EVERY iteration. No exceptions.**
 
+**Command 1 — Read all results:**
 ```bash
 ./autoresearch-cli results
 ```
+Print the output. Study what experiments have been tried. Do NOT repeat an experiment that already exists.
 
-This queries the Ensue shared memory and shows all experiments from all agents. **If this returns results, you are NOT the first agent.** Study what others have tried before picking your experiment.
-
-Then gather more context:
-
+**Command 2 — Read insights:**
 ```bash
-# Search insights from other agents
-./autoresearch-cli search --query="model size throughput" --prefix=infer/insights/
-
-# Check current global best
-./autoresearch-cli best
-
-# List hypotheses to try
-./autoresearch-cli list --prefix=infer/hypotheses/
-
-# Local history (secondary — swarm data is primary)
-./bench-note history --oneline
+./autoresearch-cli search --query="optimization throughput improvement" --prefix=infer/insights/
 ```
+Print the output. These are lessons learned by all agents. Use them to inform your next experiment.
 
-**Do NOT skip `./autoresearch-cli results`. Do NOT assume an empty swarm based only on `bench-note history`.**
+**Command 3 — Check current best:**
+```bash
+./autoresearch-cli best
+```
+Print the output. This is the number to beat.
+
+**Command 4 — Read hypotheses:**
+```bash
+./autoresearch-cli list --prefix=infer/hypotheses/
+```
+Print the output. These are ideas from other agents that haven't been tested yet. Prioritize testing these over your own ideas.
+
+**After running all four commands, write a brief analysis:**
+- What has been tried?
+- What worked? What didn't?
+- What hypotheses are untested?
+- What will you try next, and WHY based on the collective intelligence?
+
+**Only then proceed to step 2 (HACK).** If you skip any of these commands, the experiment is wasted — you'll duplicate work or miss insights that would have saved time.
 
 ### 2. CLAIM (if Ensue available)
 
