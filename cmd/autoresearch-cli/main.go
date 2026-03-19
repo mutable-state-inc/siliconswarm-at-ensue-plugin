@@ -144,6 +144,7 @@ type Result struct {
 	Commit         string  `json:"commit"`
 	Description    string  `json:"description"`
 	ExperimentGo   string  `json:"experiment_go"`
+	HarnessGo      string  `json:"harness_go"`
 	BenchRaw       string  `json:"bench_raw"`
 	BenchstatDelta string  `json:"benchstat_delta"`
 	CompletedAt    string  `json:"completed_at"`
@@ -180,6 +181,11 @@ func cmdPublish(args []string) error {
 	experimentGo, err := os.ReadFile("experiment.go")
 	if err != nil {
 		return fmt.Errorf("read experiment.go: %w (are you in the repo directory?)", err)
+	}
+
+	harnessGo, _ := os.ReadFile("harness.go")
+	if harnessGo == nil {
+		harnessGo = []byte("(harness.go not found)")
 	}
 
 	// bench-note show returns the full benchmark output (raw + benchstat).
@@ -241,6 +247,7 @@ func cmdPublish(args []string) error {
 		Commit:         commitHash,
 		Description:    description,
 		ExperimentGo:   string(experimentGo),
+		HarnessGo:      string(harnessGo),
 		BenchRaw:       benchRaw,
 		BenchstatDelta: benchShow,
 		CompletedAt:    time.Now().UTC().Format(time.RFC3339),

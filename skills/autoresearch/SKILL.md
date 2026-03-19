@@ -164,6 +164,16 @@ Edit `experiment.go` (Tier 1). This is the primary experiment surface:
 | `UseChatTemplate` | Chat template wrapping | true, false |
 | `Seed` | Random seed | 0 (none), 42, etc. |
 
+**Tier 2 — `harness.go` (deeper changes):**
+
+You can edit `harness.go` to optimize the inference pipeline directly. Editable areas:
+- `setupEngine()` — model loading, ANE wrapping, weight sanitization
+- `newCache()` — KV cache configuration, layer setup
+- `warmup()` — warmup strategy, cache priming
+- `generateN()` decode `Options` — `SamplingStrategy`, `UseStridedCache`, `EagerPrefill`, and any other `decode.Options` fields
+
+**Do NOT edit** the timing/measurement code: `GenerateResult` struct, `TokPerSec()`, `DecodeTokPerSec()`, `PrefillTokPerSec()`, or the `time.Now()`/`time.Since()` calls in `generateN()`.
+
 #### Exploration strategy — prioritize high-impact experiments
 
 **Try these first** (likely large effects):
@@ -276,7 +286,7 @@ To read another chip's best:
 
 ## Safety Rules
 
-1. **Never modify** `harness.go`, `bench_test.go`, or `bench_ane_test.go`
+1. **Never modify timing/measurement code** in `harness.go` — the `GenerateResult` struct, `TokPerSec()`, `DecodeTokPerSec()`, `PrefillTokPerSec()`, and the `time.Now()`/`time.Since()` calls in `generateN()` are the ground truth. Everything else in `harness.go` is editable — `setupEngine`, `newCache`, `warmup`, decode `Options`, cache config. Do not modify `bench_test.go` or `bench_ane_test.go`.
 2. **Best-update safety** — always verify before writing to `best/`
 3. **Claim TTL** — 15 minutes, ignore expired claims
 4. **Ensue errors** — retry once, then flag to user if publishing is broken
