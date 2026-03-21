@@ -455,3 +455,22 @@ pub extern "C" fn coreml_bench(n: u32) -> i64 {
 pub extern "C" fn coreml_free() {
     *COREML_MODEL.lock().unwrap() = None;
 }
+
+/// Ping ANE with a trivially small 1x1 sigmoid graph.
+/// Returns latency in microseconds, or -1 on failure.
+/// Use this to prevent ANE from entering deep sleep.
+#[unsafe(no_mangle)]
+pub extern "C" fn ane_ping() -> i64 {
+    let mut g = Graph::new();
+    let x = g.placeholder(Shape { batch: 1, channels: 1, height: 1, width: 1 });
+    let _y = g.sigmoid(x);
+    let exec = match g.compile(NSQualityOfService::Default) {
+        Ok(e) => e,
+        Err(_) => return -1,
+    };
+    let input = TensorData::with_f32(&[0.5], Shape { batch: 1, channels: 1, height: 1, width: 1 });
+    let output = TensorData::new(Shape { batch: 1, channels: 1, height: 1, width: 1 });
+    let start = Instant::now();
+    let _ = exec.run_cached_direct(&[&input], &[&output]);
+    start.elapsed().as_micros() as i64
+}
