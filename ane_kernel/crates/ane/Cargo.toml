@@ -18,6 +18,10 @@ crate-type = ["cdylib", "rlib"]
 name = "bench"
 path = "examples/bench.rs"
 
+[[example]]
+name = "gpt2_forward"
+path = "examples/gpt2_forward/main.rs"
+
 [dependencies]
 thiserror.workspace = true
 objc2.workspace = true
