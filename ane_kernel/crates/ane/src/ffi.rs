@@ -358,6 +358,41 @@ pub extern "C" fn ane_real_bench(n: u32) -> i64 {
     (start.elapsed().as_micros() / n as u128) as i64
 }
 
+/// Run FFN with real weights, accepting input data and returning output data.
+/// input_ptr: f32 array of size dim*seq (NCHW: [1, dim, 1, seq])
+/// output_ptr: f32 array of size dim*seq (caller allocates)
+/// Returns latency in microseconds, or -1 on error.
+#[unsafe(no_mangle)]
+pub extern "C" fn ane_real_forward(
+    input_ptr: *const f32,
+    output_ptr: *mut f32,
+    count: u32,
+) -> i64 {
+    let guard = REAL_MODEL.lock().unwrap();
+    let m = match guard.as_ref() { Some(m) => m, None => return -1 };
+    let count = count as usize;
+    if input_ptr.is_null() || output_ptr.is_null() || count != m.dim * m.seq {
+        return -1;
+    }
+
+    let input_slice = unsafe { std::slice::from_raw_parts(input_ptr, count) };
+    m.input.copy_from_f32(input_slice);
+
+    let start = Instant::now();
+    if m.exec.run_cached_direct(&[&m.input], &[&m.output]).is_err() {
+        return -1;
+    }
+    let elapsed = start.elapsed().as_micros() as i64;
+
+    let result = m.output.read_f32();
+    let copy_len = result.len().min(count);
+    unsafe {
+        std::ptr::copy_nonoverlapping(result.as_ptr(), output_ptr, copy_len);
+    }
+
+    elapsed
+}
+
 /// Free real-weight model.
 #[unsafe(no_mangle)]
 pub extern "C" fn ane_real_free() {
