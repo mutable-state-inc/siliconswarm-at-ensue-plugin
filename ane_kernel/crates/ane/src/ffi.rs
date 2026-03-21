@@ -474,3 +474,72 @@ pub extern "C" fn ane_ping() -> i64 {
     let _ = exec.run_cached_direct(&[&input], &[&output]);
     start.elapsed().as_micros() as i64
 }
+
+// === Pre-compiled ANE keepalive kernel ===
+// Uses SRAM-resident inner_product (weights < 16MB) so it runs
+// without DRAM access, enabling true concurrent execution with GPU.
+
+static KEEPALIVE: Mutex<Option<KeepaliveModel>> = Mutex::new(None);
+
+struct KeepaliveModel {
+    exec: crate::Executable,
+    input: TensorData,
+    output: TensorData,
+}
+
+/// Compile a reusable ANE keepalive kernel.
+/// Uses inner_product with small weights that fit in ANE SRAM.
+/// Call once during init, then use ane_keepalive_run() repeatedly.
+#[unsafe(no_mangle)]
+pub extern "C" fn ane_keepalive_init() -> i32 {
+    let dim = 512usize;
+    let hidden = 1024usize;
+    let seq = 64usize;
+
+    let mut g = Graph::new();
+    let x = g.placeholder(Shape { batch: 1, channels: dim, height: 1, width: seq });
+    // Two inner_products: dim->hidden->dim. Total weights: 512*1024*2 + 1024*512*2 = 2MB fp16.
+    // Easily fits in ANE SRAM (~32MB), so runs at 15000+ GB/s.
+    let up = g.inner_product(x, &vec![0.01f32; hidden * dim], dim, hidden);
+    let gs = g.sigmoid(up);
+    let act = g.multiplication(up, gs); // SiLU
+    let down = g.inner_product(act, &vec![0.01f32; dim * hidden], hidden, dim);
+    let _out = g.addition(x, down);
+
+    let exec = match g.compile(NSQualityOfService::UserInteractive) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("ane_keepalive_init: compile failed: {e}");
+            return -1;
+        }
+    };
+
+    let input = TensorData::with_f32(
+        &vec![0.01; dim * seq],
+        Shape { batch: 1, channels: dim, height: 1, width: seq },
+    );
+    let output = TensorData::new(Shape { batch: 1, channels: dim, height: 1, width: seq });
+
+    // Warmup to ensure model is loaded into ANE SRAM
+    for _ in 0..5 {
+        let _ = exec.run_cached_direct(&[&input], &[&output]);
+    }
+
+    *KEEPALIVE.lock().unwrap() = Some(KeepaliveModel { exec, input, output });
+    0
+}
+
+/// Run one keepalive dispatch. Pre-compiled, no allocation. Returns µs or -1.
+#[unsafe(no_mangle)]
+pub extern "C" fn ane_keepalive_run() -> i64 {
+    let guard = KEEPALIVE.lock().unwrap();
+    let m = match guard.as_ref() {
+        Some(m) => m,
+        None => return -1,
+    };
+    let start = Instant::now();
+    match m.exec.run_cached_direct(&[&m.input], &[&m.output]) {
+        Ok(()) => start.elapsed().as_micros() as i64,
+        Err(_) => -1,
+    }
+}
