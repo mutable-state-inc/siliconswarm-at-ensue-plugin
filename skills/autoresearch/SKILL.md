@@ -1,6 +1,6 @@
 ---
 name: autoresearch
-description: "Optimize local inference tok/s by building ANE+GPU kernels. Benchmark, keep or revert."
+description: "Optimize local inference tok/s by building ANE kernels with the private API. Benchmark, keep or revert."
 argument-hint: "[focus]"
 allowed-tools: Bash(*), Read, Write, Edit, Glob, Grep, Agent
 triggers:
@@ -11,7 +11,9 @@ triggers:
 
 # autoresearch
 
-Prove that the ANE private API improves inference tok/s on a coding agent workload (Qwen3.5-4B-4bit, ~2000 token prompt). For the ANE private API reference, use `/ane-private-api`.
+Prove that the ANE private API improves inference tok/s on a coding agent workload (Qwen3.5-4B-4bit, ~2000 token prompt).
+
+Before your first hypothesis, run `/ane-private-api` to understand the ANE private API — what ops exist, how the graph builder works, hardware constraints.
 
 ## Setup
 
@@ -24,19 +26,15 @@ make build
 
 ## You may ONLY edit these files
 
-1. `ane_kernel/crates/ane/src/ffi.rs` — **PRIMARY.** Rust ANE kernel. Build new FFI functions, new graph ops, new kernel architectures.
-2. `ane_draft.go` — Register and call FFI functions from the Rust kernel. Wire ANE into the Go pipeline.
-3. `harness.go` — GPU pipeline. Route work to ANE, integrate ANE results.
+1. `ane_kernel/crates/ane/src/ffi.rs` — Rust ANE kernel. Every hypothesis starts here.
+2. `ane_draft.go` — Register and call new FFI functions from the Rust kernel.
+3. `harness.go` — ONLY to wire ANE calls into the inference pipeline. Do not change cache type, warmup, env vars, or anything unrelated to calling the ANE kernel.
 
-Every hypothesis should involve the Rust kernel or how it's called. Pure Go changes without ANE involvement are not the point of this experiment.
-
-Everything else is off limits. Do not edit `experiment.go`, `bench_test.go`, `bench_ane_test.go`, anything in `decode/`, anything in the `mlx-go` repo.
-
-Reference: `ane_kernel/crates/ane/src/graph/ops.rs` lists all available ANE graph operations.
+Do not edit `experiment.go`, `bench_test.go`, `bench_ane_test.go`, anything in `decode/`, anything in the `mlx-go` repo.
 
 ## Loop
 
-1. Hypothesize — only read files in this repo. Only read files you can edit or `ane_kernel/crates/ane/src/graph/ops.rs`. Nothing else.
+1. Hypothesize — run `/ane-private-api` if you need the API reference. Only read files you can edit.
 2. Implement — no debug prints, no diagnostic tests
 3. Build — `make build`. One fix attempt if it fails, then revert.
 4. Commit — `git add -A && git commit -m "<description>"`
