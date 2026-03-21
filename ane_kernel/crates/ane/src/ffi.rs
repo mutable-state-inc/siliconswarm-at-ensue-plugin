@@ -363,7 +363,7 @@ pub extern "C" fn ane_real_bench(n: u32) -> i64 {
 /// output_ptr: f32 array of size dim*seq (caller allocates)
 /// Returns latency in microseconds, or -1 on error.
 #[unsafe(no_mangle)]
-pub extern "C" fn ane_real_forward(
+pub unsafe extern "C" fn ane_real_forward(
     input_ptr: *const f32,
     output_ptr: *mut f32,
     count: u32,

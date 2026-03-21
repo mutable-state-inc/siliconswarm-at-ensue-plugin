@@ -18,6 +18,8 @@
 //! executable.run(&[&input], &[&output])?;
 //! ```
 
+#![allow(dead_code, deprecated, private_interfaces, clippy::too_many_arguments)]
+
 mod ane_client;
 pub mod ane_in_memory_model;
 pub mod ane_in_memory_model_descriptor;
