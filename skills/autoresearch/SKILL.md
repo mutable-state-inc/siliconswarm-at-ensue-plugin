@@ -15,15 +15,16 @@ Prove that the ANE private API improves inference tok/s on a coding agent worklo
 
 ## Setup
 
+All commands run from the plugin repo root (where the Makefile is).
+
 ```bash
-cd "$(go env GOPATH)/src/github.com/tmc/autoresearch-mlx-go-ane"
-export PATH="${PATH}:$(go env GOPATH)/bin"
+cd "${CLAUDE_SKILL_DIR}/../.."
 make build
 ```
 
 ## You may ONLY edit these files
 
-1. `ane_kernel/crates/ane/src/ffi.rs` — **PRIMARY.** Rust ANE kernel. Build new FFI functions, new graph ops, new kernel architectures. This is where the ANE private API work happens.
+1. `ane_kernel/crates/ane/src/ffi.rs` — **PRIMARY.** Rust ANE kernel. Build new FFI functions, new graph ops, new kernel architectures.
 2. `ane_draft.go` — Register and call FFI functions from the Rust kernel. Wire ANE into the Go pipeline.
 3. `harness.go` — GPU pipeline. Route work to ANE, integrate ANE results.
 
@@ -35,7 +36,7 @@ Reference: `ane_kernel/crates/ane/src/graph/ops.rs` lists all available ANE grap
 
 ## Loop
 
-1. Hypothesize — read at most 2 files
+1. Hypothesize — only read files in this repo. Only read files you can edit or `ane_kernel/crates/ane/src/graph/ops.rs`. Nothing else.
 2. Implement — no debug prints, no diagnostic tests
 3. Build — `make build`. One fix attempt if it fails, then revert.
 4. Commit — `git add -A && git commit -m "<description>"`
