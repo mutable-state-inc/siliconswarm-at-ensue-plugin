@@ -81,9 +81,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         previous_text = current_text;
 
         let generation_start = Instant::now();
+        let mut total_attn_us = 0u64;
+        let mut total_ffn_us = 0u64;
+
         for _ in 0..MAX_NEW_TOKENS - 1 {
             let last_token = *generated_tokens.last().unwrap();
-            let logits = session.decode_step(last_token);
+            let (logits, timing) = session.decode_step_timed(last_token);
+            total_attn_us += timing.attn_us;
+            total_ffn_us += timing.ffn_us;
+
             let next_token = sampling::sample(&logits, TEMPERATURE, TOP_P, REPETITION_PENALTY, &generated_tokens, &mut rng);
             generated_tokens.push(next_token);
 
@@ -96,12 +102,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             previous_text = current_text;
         }
         let generation_elapsed = generation_start.elapsed().as_secs_f64();
+        let ane_tok_s = MAX_NEW_TOKENS as f64 / generation_elapsed;
+        let attn_ms = total_attn_us as f64 / 1000.0;
+        let ffn_ms = total_ffn_us as f64 / 1000.0;
+        let total_compute_ms = attn_ms + ffn_ms;
+        let pipeline_ms = attn_ms.max(ffn_ms); // if pipelined, total = max(attn, ffn)
+        let pipeline_tok_s = MAX_NEW_TOKENS as f64 / (pipeline_ms / 1000.0);
+
         println!();
-        eprintln!(
-            "\n\x1b[2m[{MAX_NEW_TOKENS} tokens in {generation_elapsed:.1}s ({:.1} tok/s) | total {:.1}s]\x1b[0m",
-            MAX_NEW_TOKENS as f64 / generation_elapsed,
-            start.elapsed().as_secs_f64(),
-        );
+        eprintln!();
+        eprintln!("═══════════════════════════════════════════════════════");
+        eprintln!("  GPT-2 on Apple Neural Engine (Private API)");
+        eprintln!("═══════════════════════════════════════════════════════");
+        eprintln!("  ANE-only (current):  {ane_tok_s:6.1} tok/s  ({generation_elapsed:.2}s)");
+        eprintln!("  ─── per-token breakdown ───");
+        eprintln!("  Attention:           {attn_ms:6.1}ms total ({:.2}ms/tok)",
+            attn_ms / (MAX_NEW_TOKENS - 1) as f64);
+        eprintln!("  FFN:                 {ffn_ms:6.1}ms total ({:.2}ms/tok)",
+            ffn_ms / (MAX_NEW_TOKENS - 1) as f64);
+        eprintln!("  ─── projected throughput ───");
+        eprintln!("  GPU-only (if attn on GPU): would need Metal implementation");
+        eprintln!("  GPU+ANE pipeline:    {pipeline_tok_s:6.1} tok/s  (attn||FFN concurrent)");
+        eprintln!("  Pipeline speedup:    {:+.0}% vs ANE-only",
+            (pipeline_tok_s / ane_tok_s - 1.0) * 100.0);
+        eprintln!("═══════════════════════════════════════════════════════");
+        eprintln!("  Total time: {:.1}s (including model download + compile)", start.elapsed().as_secs_f64());
     }
 
     Ok(())

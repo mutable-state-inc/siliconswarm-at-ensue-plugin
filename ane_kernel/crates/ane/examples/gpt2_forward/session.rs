@@ -1,8 +1,14 @@
+use std::time::Instant;
 use ane::{Shape, TensorData};
 
 use crate::compiled_model::CompiledModel;
 use crate::executables::DECODE_SPATIAL_WIDTH;
 use crate::kv_cache::KvCache;
+
+pub struct StepTiming {
+    pub attn_us: u64,
+    pub ffn_us: u64,
+}
 
 pub struct Session<'model> {
     model: &'model CompiledModel,
@@ -155,6 +161,64 @@ impl<'model> Session<'model> {
         self.kv_cache.position = self.position;
 
         self.run_lm_head()
+    }
+
+    /// Same as decode_step but returns per-component timing.
+    pub fn decode_step_timed(&mut self, token: u32) -> (&[f32], StepTiming) {
+        let embedding_dim = self.model.config.n_embd;
+
+        {
+            let mut hidden_surface = self.decode_hidden.as_f32_slice_mut();
+            let token_index = token as usize;
+            for dim_index in 0..embedding_dim {
+                hidden_surface[dim_index * DECODE_SPATIAL_WIDTH] =
+                    self.model.weights.wte[token_index * embedding_dim + dim_index]
+                        + self.model.weights.wpe[self.position * embedding_dim + dim_index];
+            }
+        }
+
+        {
+            let mut mask_surface = self.decode_mask.as_f32_slice_mut();
+            mask_surface[self.position] = 0.0;
+        }
+
+        let mut total_attn = 0u64;
+        let mut total_ffn = 0u64;
+
+        for (layer_index, layer) in self.model.executables.decode.iter().enumerate() {
+            let t0 = Instant::now();
+            layer
+                .attention
+                .run(
+                    &[&self.decode_hidden, &self.kv_cache.keys[layer_index], &self.kv_cache.values[layer_index], &self.decode_mask],
+                    &[&self.decode_attn_delta],
+                )
+                .unwrap_or_else(|error| panic!("decode layer {layer_index} attention: {error}"));
+            total_attn += t0.elapsed().as_micros() as u64;
+
+            {
+                let attn_slice = self.decode_attn_delta.as_f32_slice();
+                self.kv_cache.write_kv_from_attn(layer_index, &attn_slice, DECODE_SPATIAL_WIDTH, self.position);
+
+                let mut hidden_surface = self.decode_hidden.as_f32_slice_mut();
+                hidden_surface.copy_from_slice(&attn_slice[..embedding_dim * DECODE_SPATIAL_WIDTH]);
+            }
+
+            let t1 = Instant::now();
+            layer
+                .feed_forward
+                .run(&[&self.decode_hidden], &[&self.decode_ffn_delta])
+                .unwrap_or_else(|error| panic!("decode layer {layer_index} ffn: {error}"));
+            total_ffn += t1.elapsed().as_micros() as u64;
+
+            std::mem::swap(&mut self.decode_hidden, &mut self.decode_ffn_delta);
+        }
+
+        self.position += 1;
+        self.kv_cache.position = self.position;
+
+        let logits = self.run_lm_head();
+        (logits, StepTiming { attn_us: total_attn, ffn_us: total_ffn })
     }
 
     fn run_lm_head(&mut self) -> &[f32] {
