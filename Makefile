@@ -16,7 +16,7 @@ build: sync
 	cd $(BENCH_DIR) && GOFLAGS="$(GOFLAGS)" go test -c -o /dev/null .
 
 bench: build
-	cd $(BENCH_DIR) && GOFLAGS="$(GOFLAGS)" ./bench-note run --benchtime=1x --count=3 -- -bench=BenchmarkGenerate
+	cd $(BENCH_DIR) && GOFLAGS="$(GOFLAGS)" go test -bench=BenchmarkGenerate -benchtime=1x -count=3 -run='^$$' -timeout=10m
 
 clean:
 	cd ane_kernel && $(CARGO) clean
