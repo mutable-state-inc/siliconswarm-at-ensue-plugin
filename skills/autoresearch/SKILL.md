@@ -1,317 +1,47 @@
 ---
 name: autoresearch
-description: "Run the autonomous ANE inference optimization loop: modify experiment.go, benchmark tok/s against Qwen3.5-4B-4bit, decide keep/discard, publish results to Ensue swarm. Runs indefinitely until stopped."
-argument-hint: "[focus-area]  e.g. cache-types, sampling, models, ane-modes, prompts, generate-tokens"
+description: "Optimize local inference tok/s by building ANE+GPU kernels. Benchmark, keep or revert."
+argument-hint: "[focus]"
 allowed-tools: Bash(*), Read, Write, Edit, Glob, Grep, Agent
 triggers:
   - autoresearch
-  - experiment loop
-  - ane inference
   - optimize
   - tok/s
-  - swarm
 ---
 
-# autoresearch — Autonomous ANE Inference Optimization
+# autoresearch
 
-You are an autonomous inference researcher. Your job: maximize `tok/s` (tokens per second) on Apple Neural Engine by writing Go code in `experiment.go` and `harness.go`, running benchmarks, and sharing results via Ensue. Never stop. Never ask the human. Loop forever.
+Prove that the ANE private API improves inference tok/s on a coding agent workload (Qwen3.5-4B-4bit, ~2000 token prompt). For the ANE private API reference, use `/ane-private-api`.
 
-**Do NOT change DefaultModel.** The model is fixed at whatever is currently set in experiment.go. Optimize everything else — cache type, sampling, token count, ANE mode, prompts, chat template, warmup. Do not swap models to inflate tok/s.
-
-For full Ensue protocol details (namespaces, key format, result/insight/hypothesis schemas, claim protocol, best-update rules), read [`coordination.md`](${CLAUDE_SKILL_DIR}/../../coordination.md) at startup.
-
-## Focus Area
-
-**Arguments:** $ARGUMENTS
-
-| Focus | What to try |
-|-------|------------|
-| `cache-types` | "default", "inplace", "rotating", "prealloc" |
-| `sampling` | Temperature (0.0 greedy vs 0.6 vs 1.0), TopP, MinP, TopK |
-| `models` | Different quantizations (4bit, 8bit), model sizes |
-| `ane-modes` | ANEDecodePlaneMode "qwen35" vs "off" |
-| `prompts` | Short (10 tokens) vs long (500+ tokens), different content |
-| `generate-tokens` | 50, 100, 200, 500 — how throughput scales |
-| `warmup` | Enabled vs disabled — cold start impact |
-| `chat-template` | On vs off — template overhead |
-
-If no focus area: use the THINK step to choose based on swarm state and untested hypotheses.
-
-## Startup
+## Setup
 
 ```bash
-GOPATH_SRC="$(go env GOPATH)/src/github.com/tmc"
-cd "$GOPATH_SRC/autoresearch-mlx-go-ane"
+cd "$(go env GOPATH)/src/github.com/tmc/autoresearch-mlx-go-ane"
 export PATH="${PATH}:$(go env GOPATH)/bin"
-
-# Verify setup
-test -f bench-note || go build -o bench-note ./cmd/bench-note/
-go test -c -o /dev/null .
-
-# Detect chip
-CHIP_NAME=$(sysctl -n machdep.cpu.brand_string)
+make build
 ```
 
-### Branch discipline
+## You may ONLY edit these files
 
-**Always create a fresh branch from main before experimenting:**
+1. `ane_kernel/crates/ane/src/ffi.rs` — **PRIMARY.** Rust ANE kernel. Build new FFI functions, new graph ops, new kernel architectures. This is where the ANE private API work happens.
+2. `ane_draft.go` — Register and call FFI functions from the Rust kernel. Wire ANE into the Go pipeline.
+3. `harness.go` — GPU pipeline. Route work to ANE, integrate ANE results.
 
-```bash
-git checkout main
-git checkout main -- experiment.go   # reset to defaults
-DATE=$(date +%Y%m%d)
-git checkout -b "autoresearch/${DATE}-<YOUR_CODENAME>"
-```
+Every hypothesis should involve the Rust kernel or how it's called. Pure Go changes without ANE involvement are not the point of this experiment.
 
-This ensures you start from a clean state. Each agent gets its own branch. When you discard an experiment (`git reset --hard HEAD~1`), you only affect your branch. Never push experiment branches — results go to Ensue, not git remote.
+Everything else is off limits. Do not edit `experiment.go`, `bench_test.go`, `bench_ane_test.go`, anything in `decode/`, anything in the `mlx-go` repo.
 
-**IMPORTANT: Every Bash call gets a fresh shell.** You must prepend these exports to any command that uses `go test`, `bench-note`, `benchstat`, or `autoresearch-cli`:
+Reference: `ane_kernel/crates/ane/src/graph/ops.rs` lists all available ANE graph operations.
 
-```bash
-export PATH="${PATH}:$(go env GOPATH)/bin"
-export GOFLAGS="-tags=ane_appleneuralengine"
-```
+## Loop
 
-Without `PATH`, benchstat will not be found. Without `GOFLAGS`, the ANE runtime will be unavailable and all ANE benchmarks will run in degraded GPU-fallback mode.
+1. Hypothesize — read at most 2 files
+2. Implement — no debug prints, no diagnostic tests
+3. Build — `make build`. One fix attempt if it fails, then revert.
+4. Commit — `git add -A && git commit -m "<description>"`
+5. Run — `make bench`
+6. Publish — `./autoresearch-cli publish --agent=<NAME> --status=<keep|discard|crash> --description="<what>"`
+7. tok/s improved → keep. Else → `git reset --hard HEAD~1`
+8. Goto 1
 
-Read these files at startup: `experiment.go` (your canvas), `harness.go` (editable — see Tier 2), `program.md`, `bench_ane_test.go` (read-only).
-
-## Agent Identity
-
-Pick a **unique codename** — a single creative word. Check existing agents first:
-
-```bash
-./autoresearch-cli list --prefix=@sai_ane/infer/m1/best/agent/
-```
-
-Pick a name NOT in that list. Draw from mythology, astronomy, nature, science.
-
-## The Loop
-
-Run forever. **Every single iteration** follows this exact sequence. No skipping steps. No reordering.
-
-```
-LOOP:
-  1. THINK   → autoresearch-cli results + search (EVERY iteration, not just first)
-  2. HACK    → edit experiment.go AND/OR harness.go
-  3. COMMIT  → go test -c && git commit
-  4. RUN     → bench-note run
-  5. PUBLISH → autoresearch-cli publish (EVERY iteration, not just keeps)
-  6. DECIDE  → keep or git reset --hard HEAD~1
-  7. GOTO 1
-```
-
-**You MUST run THINK before every experiment, not just the first one.** The swarm changes between iterations — other agents may have published new results, insights, or hypotheses while you were benchmarking. If you skip THINK, you will duplicate work or miss better approaches.
-
-### 1. THINK
-
-**You MUST run ALL FOUR of these commands before EVERY iteration. No exceptions.**
-
-**Command 1 — Read all results:**
-```bash
-./autoresearch-cli results
-```
-Print the output. Study what experiments have been tried. Do NOT repeat an experiment that already exists.
-
-**Command 2 — Read insights:**
-```bash
-./autoresearch-cli search --query="optimization throughput improvement" --prefix=infer/insights/
-```
-Print the output. These are lessons learned by all agents. Use them to inform your next experiment.
-
-**Command 3 — Check current best:**
-```bash
-./autoresearch-cli best
-```
-Print the output. This is the number to beat.
-
-**Command 4 — Read hypotheses:**
-```bash
-./autoresearch-cli list --prefix=infer/hypotheses/
-```
-Print the output. These are ideas from other agents that haven't been tested yet. Prioritize testing these over your own ideas.
-
-**After running all four commands, write a brief analysis:**
-- What has been tried?
-- What worked? What didn't?
-- What hypotheses are untested?
-- What will you try next, and WHY based on the collective intelligence?
-
-**Only then proceed to step 2 (HACK).** If you skip any of these commands, the experiment is wasted — you'll duplicate work or miss insights that would have saved time.
-
-### 2. CLAIM (if Ensue available)
-
-Claim your experiment to prevent duplicate work (15-min TTL). Use `autoresearch-cli` to check for similar claims:
-
-```bash
-./autoresearch-cli search --query="<your experiment description>" --prefix=@sai_ane/infer/<chip>/claims/
-```
-
-### 3. HACK
-
-Edit `experiment.go` and/or `harness.go`. Both are your optimization surface.
-
-| Constant | What it does | Values to try |
-|----------|-------------|---------------|
-| `DefaultModel` | HuggingFace model ID | Different quantizations, sizes |
-| `DefaultPrompt` | Prompt text | Short vs long, different content |
-| `GenerateTokens` | Tokens to generate | 50, 100, 200, 500 |
-| `Temperature` | Sampling temperature | 0.0 (greedy), 0.6, 1.0 |
-| `TopP`, `MinP`, `TopK` | Sampling params | Simpler = faster |
-| `WarmupEnabled` | Warmup before bench | true, false |
-| `CacheType` | KV cache strategy | "default", "inplace", "rotating", "prealloc" |
-| `ANEDecodePlaneMode` | ANE mode | "qwen35", "off" |
-| `UseChatTemplate` | Chat template wrapping | true, false |
-| `Seed` | Random seed | 0 (none), 42, etc. |
-
-**Tier 2 — `harness.go` (deeper changes):**
-
-You can edit `harness.go` to optimize the inference pipeline directly. Editable areas:
-- `setupEngine()` — model loading, ANE wrapping, weight sanitization
-- `newCache()` — KV cache configuration, layer setup
-- `warmup()` — warmup strategy, cache priming
-- `generateN()` decode `Options` — `SamplingStrategy`, `UseStridedCache`, `EagerPrefill`, and any other `decode.Options` fields
-
-**Do NOT edit** the timing/measurement code: `GenerateResult` struct, `TokPerSec()`, `DecodeTokPerSec()`, `PrefillTokPerSec()`, or the `time.Now()`/`time.Since()` calls in `generateN()`.
-
-#### Exploration strategy — prioritize high-impact experiments
-
-**Start with real code changes** (highest impact):
-1. **Edit harness.go decode pipeline** — change `SamplingStrategy`, `UseStridedCache`, `EagerPrefill`, rewrite cache creation logic, optimize the token iteration loop
-2. **Read mlx-go source code** — study `$GOPATH/src/github.com/tmc/mlx-go/mlx/*.go` and write new mlx API calls in experiment.go `init()` or harness.go
-3. **Profile and fix bottlenecks** — `go test -bench=. -cpuprofile=cpu.prof`, then write code to address what you find
-
-**Then try constants** (moderate impact):
-4. **GenerateTokens scaling** — 50, 100, 200, 500
-5. **CacheType** — "inplace", "rotating", "prealloc"
-6. **ANE mode** — "qwen35" vs "off"
-
-**Low priority** (diminishing returns):
-7. Env vars, chat template, seed, warmup, TopP/MinP/TopK at Temperature=0.0
-
-If tok/s stops improving, do NOT stop. Instead:
-
-1. **Edit harness.go** — `setupEngine`, `newCache`, `warmup`, and decode `Options` in `generateN()` are all editable. Only timing code is off-limits. Try changing `SamplingStrategy`, `UseStridedCache`, `EagerPrefill`, or cache configuration.
-2. **Profile** — run `go test -bench=. -cpuprofile=cpu.prof` and analyze with `go tool pprof` to find actual bottlenecks. Report findings as insights.
-3. **Combine near-misses** — if two changes each gave +1% but not significant, try them together.
-4. **Rewrite harness.go functions** — rewrite `newCache()`, `warmup()`, or the decode loop in `generateN()` with different approaches
-5. **Add new Go code** — add helper functions, pre-allocation, buffer pooling, or custom decode logic
-6. **Read mlx-go-lm decode source** — study `$GOPATH/src/github.com/tmc/mlx-go-lm/mlxlm/decode/*.go` and use internal APIs
-7. **Publish hypotheses** — even if you can't test something, publish it as a hypothesis for other agents.
-
-#### mlx-go API
-
-Both `experiment.go` and `harness.go` can import any package from the mlx-go ecosystem. **Explore the bindings by reading the source files directly:**
-
-```bash
-ls $GOPATH/src/github.com/tmc/mlx-go/mlx/*.go
-ls $GOPATH/src/github.com/tmc/mlx-go-lm/mlxlm/decode/*.go
-ls $GOPATH/src/github.com/tmc/mlx-go-lm/mlxlm/kvcache/*.go
-ls $GOPATH/src/github.com/tmc/mlx-go-lm/mlxlm/*.go
-ls $GOPATH/src/github.com/tmc/apple/metal/*.go
-ls $GOPATH/src/github.com/tmc/apple/x/ane/*.go
-```
-
-Read these files. Find functions, types, and options that could improve throughput. Use them.
-
-### 4. COMMIT
-
-```bash
-go test -c -o /dev/null .   # verify compilation
-git add -A && git commit -m "<param> <old> -> <new>"
-```
-
-### 5. RUN
-
-```bash
-./bench-note run --benchtime=1x --count=6
-```
-
-This runs `BenchmarkGenerate` and `BenchmarkPrefill`, attaches results as a git note, and auto-compares against the nearest ancestor.
-
-### 6. RECORD
-
-Key metrics from output:
-- `tok/s` — **primary target** (higher is better)
-- `decode_tok/s` — decode-only throughput
-- `prefill_ms` — prompt processing time
-- `peak_mem_gb` — memory usage
-
-Append to `results.tsv` (tab-separated, never commit):
-```
-commit	tok_per_s	decode_tok_per_s	prefill_ms	status	description
-```
-
-### 7. DECIDE
-
-- **tok/s increased** with `p < 0.05`: status=`keep`
-- **tok/s equal or worse**: status=`discard`, `git reset --hard HEAD~1`
-- **Crash**: status=`crash`, `git reset --hard HEAD~1`
-
-Sanity checks — reject:
-- `tok/s <= 0` (crash/bug)
-- Improvement > 100% in one step (measurement error)
-
-### 8. PUBLISH
-
-**CRITICAL: You MUST run this exact command after every benchmark. No exceptions. No manual JSON. No shortcuts.**
-
-```bash
-./autoresearch-cli publish --agent=<YOUR_CODENAME> --status=<keep|discard|crash> --description="<what you changed>"
-```
-
-This is the ONLY way to publish results. The tool automatically:
-- Reads the full `experiment.go` source code
-- Reads the raw benchmark output from `bench-note raw`
-- Reads the benchstat delta from `bench-note show`
-- Detects chip name/tier/TOPS
-- Parses tok/s, decode_tok/s, prefill_ms, peak_mem_gb from bench output
-- Publishes everything to the Ensue shared memory
-
-**Do NOT manually construct result JSON. Do NOT use create_memory directly. Just run the command.**
-
-Example:
-```bash
-./autoresearch-cli publish --agent=cygnus --status=keep --description="CacheType default -> inplace"
-```
-
-Use `--dry-run` to preview without publishing. If the tool is missing, rebuild it:
-```bash
-cd "${CLAUDE_SKILL_DIR}/../.." && go build -o "$GOPATH_SRC/autoresearch-mlx-go-ane/publish-result" ./cmd/publish-result/
-```
-
-If `publish-result` fails, retry once. If it fails again, log the error and continue the loop — but flag to the user that publishing is broken.
-
-### Updating Global Best
-
-Only `keep` results with tok/s **strictly higher** than current best:
-
-The `autoresearch-cli publish` command handles best-update automatically. When your result beats the current best for your chip, it updates `infer/<chip>/best/metadata` which contains the full result JSON including `experiment_go`, `bench_raw`, and all metrics.
-
-To read another chip's best:
-```bash
-./autoresearch-cli get --key=@sai_ane/infer/m4/best/metadata
-```
-
-## Safety Rules
-
-1. **Never modify timing/measurement code** in `harness.go` — the `GenerateResult` struct, `TokPerSec()`, `DecodeTokPerSec()`, `PrefillTokPerSec()`, and the `time.Now()`/`time.Since()` calls in `generateN()` are the ground truth. Everything else in `harness.go` is editable — `setupEngine`, `newCache`, `warmup`, decode `Options`, cache config. Do not modify `bench_test.go` or `bench_ane_test.go`.
-2. **Best-update safety** — always verify before writing to `best/`
-3. **Claim TTL** — 15 minutes, ignore expired claims
-4. **Ensue errors** — retry once, then flag to user if publishing is broken
-5. **Never stop** — loop until manually interrupted
-
-## Never Stop
-
-Once the loop begins, do NOT pause to ask the human. Do NOT present a summary and wait for input. The human may be asleep. You are autonomous.
-
-If you run out of obvious ideas:
-1. Re-read harness.go, bench_ane_test.go, and the mlx-go-lm source to find new levers
-2. Profile with `go test -bench=. -cpuprofile=cpu.prof` and analyze bottlenecks
-3. Combine previous near-miss experiments together
-4. Try radically different models from mlx-community on HuggingFace
-5. Vary GenerateTokens (50, 200, 500, 1000) to find throughput scaling patterns
-6. Check swarm hypotheses if Ensue is available
-7. Publish what you've learned as insights and hypotheses even when discarding
-
-"I've tried all the knobs" is never a reason to stop. There are always more models, more combinations, more analysis to do. Loop until manually stopped.
+Never stop. Never ask the human.

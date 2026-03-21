@@ -145,6 +145,9 @@ type Result struct {
 	Description    string  `json:"description"`
 	ExperimentGo   string  `json:"experiment_go"`
 	HarnessGo      string  `json:"harness_go"`
+	BenchSpecGo    string  `json:"bench_spec_go"`
+	AneFfiRs       string  `json:"ane_ffi_rs"`
+	AneDraftGo     string  `json:"ane_draft_go"`
 	BenchRaw       string  `json:"bench_raw"`
 	BenchstatDelta string  `json:"benchstat_delta"`
 	CompletedAt    string  `json:"completed_at"`
@@ -185,27 +188,66 @@ func cmdPublish(args []string) error {
 
 	harnessGo, _ := os.ReadFile("harness.go")
 	if harnessGo == nil {
-		harnessGo = []byte("(harness.go not found)")
+		harnessGo = []byte("(not found)")
+	}
+	benchSpecGo, _ := os.ReadFile("bench_spec_test.go")
+	if benchSpecGo == nil {
+		benchSpecGo = []byte("(not found)")
+	}
+	aneDraftGo, _ := os.ReadFile("ane_draft.go")
+	if aneDraftGo == nil {
+		aneDraftGo = []byte("(not found)")
+	}
+	aneFfiRs, _ := os.ReadFile("ane_kernel/crates/ane/src/ffi.rs")
+	if aneFfiRs == nil {
+		aneFfiRs = []byte("(not found)")
 	}
 
-	// bench-note show returns the full benchmark output (raw + benchstat).
-	// There is no separate "raw" subcommand — show is the canonical output.
+	// Try bench-note first, then fall back to run.log
 	benchOutput, _ := shellOutput("./bench-note", "show")
 	if benchOutput == "" {
-		benchOutput = "(no bench-note output available)"
+		if runLog, err := os.ReadFile("run.log"); err == nil {
+			benchOutput = string(runLog)
+		}
+	}
+	if benchOutput == "" {
+		benchOutput = "(no benchmark output available)"
 	}
 	benchRaw := benchOutput
 	benchShow := benchOutput
 
-	// Parse metrics from BenchmarkGenerate (the primary harness.go Engine benchmark).
-	// Fall back to BenchmarkInference/mode=GPU/Generate if BenchmarkGenerate unavailable.
-	bgLine := findBenchLine(benchRaw, "BenchmarkGenerate-")
-	tokPerS := parseMetricFromLine(bgLine, `(\d+\.?\d*)\s+tok/s`)
-	prefillMs := parseMetricFromLine(bgLine, `(\d+\.?\d*)\s+prefill_ms`)
-	peakMemGB := parseMetricFromLine(bgLine, `(\d+\.?\d*)\s+peak_mem_gb`)
-	decodeTokPerS := parseMetricFromLine(bgLine, `(\d+\.?\d*)\s+decode_tok/s`)
+	// Parse metrics: try BenchmarkSpec lines, then fall back to BenchmarkGenerate
+	specLine := findBenchLine(benchRaw, "BenchmarkSpec/Speculative-")
+	gpuLine := findBenchLine(benchRaw, "BenchmarkSpec/GPU-only-")
 
-	// Fall back to BenchmarkInference/GPU if BenchmarkGenerate didn't produce tok/s
+	// Primary tok/s: Speculative if available, else GPU-only
+	tokPerS := parseMetricFromLine(specLine, `(\d+\.?\d*)\s+tok/s`)
+	if tokPerS == 0 {
+		tokPerS = parseMetricFromLine(gpuLine, `(\d+\.?\d*)\s+tok/s`)
+	}
+
+	peakMemGB := parseMetricFromLine(specLine, `(\d+\.?\d*)\s+peak_mem_gb`)
+	if peakMemGB == 0 {
+		peakMemGB = parseMetricFromLine(gpuLine, `(\d+\.?\d*)\s+peak_mem_gb`)
+	}
+
+	decodeTokPerS := parseMetricFromLine(gpuLine, `(\d+\.?\d*)\s+decode_tok/s`)
+	if decodeTokPerS == 0 {
+		decodeTokPerS = parseMetricFromLine(specLine, `(\d+\.?\d*)\s+decode_tok/s`)
+	}
+
+	prefillMs := parseMetricFromLine(gpuLine, `(\d+\.?\d*)\s+prefill_ms`)
+
+	// Fall back to BenchmarkGenerate if BenchmarkSpec not found
+	if tokPerS == 0 {
+		bgLine := findBenchLine(benchRaw, "BenchmarkGenerate-")
+		tokPerS = parseMetricFromLine(bgLine, `(\d+\.?\d*)\s+tok/s`)
+		prefillMs = parseMetricFromLine(bgLine, `(\d+\.?\d*)\s+prefill_ms`)
+		peakMemGB = parseMetricFromLine(bgLine, `(\d+\.?\d*)\s+peak_mem_gb`)
+		decodeTokPerS = parseMetricFromLine(bgLine, `(\d+\.?\d*)\s+decode_tok/s`)
+	}
+
+	// Fall back to BenchmarkInference/GPU
 	if tokPerS == 0 {
 		gpuGenLine := findBenchLine(benchRaw, "mode=GPU/Generate")
 		tokPerS = parseMetricFromLine(gpuGenLine, `(\d+\.?\d*)\s+tok/s`)
@@ -216,11 +258,6 @@ func cmdPublish(args []string) error {
 		gpuDecodeLine := findBenchLine(benchRaw, "mode=GPU/Decode")
 		decodeTokPerS = parseMetricFromLine(gpuDecodeLine, `(\d+\.?\d*)\s+decode_tok/s`)
 	}
-
-	// Also parse ANE metrics for reporting
-	aneGenLine := findBenchLine(benchRaw, "mode=ANE/Generate")
-	aneTokPerS := parseMetricFromLine(aneGenLine, `(\d+\.?\d*)\s+tok/s`)
-	_ = aneTokPerS // included in bench_raw for swarm visibility
 
 	commitHash, err := shellOutput("git", "rev-parse", "--short", commit)
 	if err != nil {
@@ -248,6 +285,9 @@ func cmdPublish(args []string) error {
 		Description:    description,
 		ExperimentGo:   string(experimentGo),
 		HarnessGo:      string(harnessGo),
+		BenchSpecGo:    string(benchSpecGo),
+		AneFfiRs:       string(aneFfiRs),
+		AneDraftGo:     string(aneDraftGo),
 		BenchRaw:       benchRaw,
 		BenchstatDelta: benchShow,
 		CompletedAt:    time.Now().UTC().Format(time.RFC3339),
@@ -269,10 +309,12 @@ func cmdPublish(args []string) error {
 	}
 
 	key := experimentKey(agent, description)
-	resultKey := keyPrefix() + "/results/" + key
-
 	statusTag := strings.ToUpper(status)
 	desc := fmt.Sprintf("[autoresearch] [%s %s] tok/s=%.1f | %s", agent, statusTag, tokPerS, description)
+
+	// Only write to results/ if we have real metrics. Crashes and failures go to insights/ only.
+	writeResult := tokPerS > 0
+	resultKey := keyPrefix() + "/results/" + key
 
 	insight := map[string]interface{}{
 		"agent_id":  agent,
@@ -294,32 +336,37 @@ func cmdPublish(args []string) error {
 	}
 	hypothesisJSON, _ := json.Marshal(hypothesis)
 
-	items := []map[string]interface{}{
-		{
+	var items []map[string]interface{}
+
+	if writeResult {
+		items = append(items, map[string]interface{}{
 			"key_name":     resultKey,
 			"description":  desc,
 			"value":        base64.StdEncoding.EncodeToString(resultJSON),
 			"base64":       true,
 			"embed":        true,
 			"embed_source": "description",
-		},
-		{
-			"key_name":     keyPrefix() + "/insights/" + key,
-			"description":  fmt.Sprintf("[autoresearch] Insight from %s: %s", agent, description),
-			"value":        base64.StdEncoding.EncodeToString(insightJSON),
-			"base64":       true,
-			"embed":        true,
-			"embed_source": "description",
-		},
-		{
-			"key_name":     keyPrefix() + "/hypotheses/" + key,
-			"description":  fmt.Sprintf("[autoresearch] Hypothesis from %s after: %s", agent, description),
-			"value":        base64.StdEncoding.EncodeToString(hypothesisJSON),
-			"base64":       true,
-			"embed":        true,
-			"embed_source": "description",
-		},
+		})
 	}
+
+	// Always write insight (failures are informative)
+	items = append(items, map[string]interface{}{
+		"key_name":     keyPrefix() + "/insights/" + key,
+		"description":  fmt.Sprintf("[autoresearch] Insight from %s: %s", agent, description),
+		"value":        base64.StdEncoding.EncodeToString(insightJSON),
+		"base64":       true,
+		"embed":        true,
+		"embed_source": "description",
+	})
+
+	items = append(items, map[string]interface{}{
+		"key_name":     keyPrefix() + "/hypotheses/" + key,
+		"description":  fmt.Sprintf("[autoresearch] Hypothesis from %s after: %s", agent, description),
+		"value":        base64.StdEncoding.EncodeToString(hypothesisJSON),
+		"base64":       true,
+		"embed":        true,
+		"embed_source": "description",
+	})
 
 	if err := ensueRPC(apiKey, "create_memory", map[string]interface{}{"items": items}); err != nil {
 		return fmt.Errorf("publish failed: %w", err)
