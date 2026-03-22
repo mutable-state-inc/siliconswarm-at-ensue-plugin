@@ -4,23 +4,17 @@
 /// Each chip establishes its own CoreML baseline before optimizing.
 use std::process::Command;
 
-use base64::Engine;
 use serde::{Deserialize, Serialize};
 
-const ORG: &str = "ane-bench";
+const ORG: &str = "sai_ane";
 const API_URL: &str = "https://api.ensue-network.ai/";
 
 fn api_key() -> String {
     if let Ok(k) = std::env::var("ENSUE_API_KEY") {
         return k;
     }
-    for path in &[
-        ".autoresearch-key",
-        "/Users/andromeda/go/src/github.com/tmc/autoresearch-mlx-go-ane/.autoresearch-key",
-    ] {
-        if let Ok(k) = std::fs::read_to_string(path) {
-            return k.trim().to_string();
-        }
+    if let Ok(k) = std::fs::read_to_string(".autoresearch-key") {
+        return k.trim().to_string();
     }
     eprintln!("No Ensue API key. Set ENSUE_API_KEY or create .autoresearch-key");
     std::process::exit(1);
@@ -58,65 +52,121 @@ struct RpcResponse {
     error: Option<serde_json::Value>,
 }
 
-fn rpc(method: &str, params: serde_json::Value) -> Option<serde_json::Value> {
+/// MCP-style RPC: method is always "tools/call", tool_name + arguments in params.
+fn rpc(tool_name: &str, arguments: serde_json::Value) -> Option<serde_json::Value> {
     let key = api_key();
-    let req = RpcRequest {
-        jsonrpc: "2.0",
-        method,
-        params,
-        id: 1,
-    };
-    let resp: RpcResponse = ureq::post(API_URL)
+    let payload = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {"name": tool_name, "arguments": arguments},
+        "id": 1
+    });
+    let mut response = match ureq::post(API_URL)
         .header("Authorization", &format!("Bearer {key}"))
         .header("Content-Type", "application/json")
-        .send_json(&req)
-        .ok()?
-        .body_mut()
-        .read_json()
-        .ok()?;
+        .send_json(&payload)
+    {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Ensue HTTP error: {e}");
+            return None;
+        }
+    };
+    let body: String = response.body_mut().read_to_string().ok()?;
+    // Handle SSE "data: " prefix
+    let json_str = body.strip_prefix("data: ").unwrap_or(&body).trim();
+    let resp: RpcResponse = serde_json::from_str(json_str).ok()?;
     if let Some(err) = resp.error {
         eprintln!("Ensue error: {err}");
         return None;
     }
-    resp.result
+    // MCP tool results: extract structuredContent or parse content[0].text
+    let result = resp.result?;
+    if let Some(sc) = result.get("structuredContent") {
+        return Some(sc.clone());
+    }
+    if let Some(content) = result.get("content").and_then(|c| c.as_array()) {
+        if let Some(text) = content
+            .first()
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+        {
+            return serde_json::from_str(text).ok();
+        }
+    }
+    Some(result)
 }
 
-fn write_memory(key: &str, value: &serde_json::Value) -> bool {
-    let b64 = base64::engine::general_purpose::STANDARD.encode(value.to_string());
-    rpc("create_memory", serde_json::json!([key, b64])).is_some()
+fn write_memory(key: &str, description: &str, value: &serde_json::Value) -> bool {
+    rpc(
+        "create_memory",
+        serde_json::json!({
+            "items": [{
+                "key_name": key,
+                "description": description,
+                "value": value.to_string(),
+                "embed": true,
+                "embed_source": "description"
+            }]
+        }),
+    )
+    .is_some()
 }
 
 fn read_memory(key: &str) -> Option<serde_json::Value> {
-    let resp = rpc("read_memory", serde_json::json!([key]))?;
-    let b64 = resp.get("value")?.as_str()?;
-    let decoded = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
-    serde_json::from_slice(&decoded).ok()
+    let resp = rpc("get_memory", serde_json::json!({"key_names": [key]}))?;
+    let results = resp.get("results").and_then(|r| r.as_array())?;
+    let mem = results.first()?;
+    let val_str = mem.get("value")?.as_str()?;
+    serde_json::from_str(val_str).ok()
 }
 
-fn list_memories(prefix: &str) -> Vec<String> {
-    rpc("list_memories", serde_json::json!([prefix]))
-        .and_then(|v| v.as_array().cloned())
-        .unwrap_or_default()
+fn list_keys(prefix: &str) -> Vec<String> {
+    let resp = rpc(
+        "list_keys",
+        serde_json::json!({"prefix": prefix, "limit": 50}),
+    );
+    let val = match resp {
+        Some(v) => v,
+        None => return vec![],
+    };
+    // Response: {"keys": [...], "count": N}
+    val.get("keys")
+        .and_then(|v| v.as_array())
+        .unwrap_or(&vec![])
         .iter()
-        .filter_map(|v| v.get("key").and_then(|k| k.as_str()).map(|s| s.to_string()))
+        .filter_map(|v| {
+            v.get("key_name")
+                .and_then(|k| k.as_str())
+                .map(|s| s.to_string())
+                .or_else(|| v.get("key").and_then(|k| k.as_str()).map(|s| s.to_string()))
+                .or_else(|| v.as_str().map(|s| s.to_string()))
+        })
         .collect()
 }
 
 fn search_memories(query: &str, prefix: &str) -> Vec<(String, String)> {
-    rpc("search_memories", serde_json::json!([query, prefix, 10]))
-        .and_then(|v| v.as_array().cloned())
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|v| {
-            let key = v.get("key")?.as_str()?.to_string();
-            let snippet = v
-                .get("snippet")
-                .and_then(|s| s.as_str())
-                .unwrap_or("")
-                .to_string();
-            Some((key, snippet))
-        })
-        .collect()
+    rpc(
+        "search_memories",
+        serde_json::json!({"query": query, "prefix": prefix, "limit": 10}),
+    )
+    .and_then(|v| v.as_array().cloned())
+    .unwrap_or_default()
+    .iter()
+    .filter_map(|v| {
+        let key = v
+            .get("key")
+            .and_then(|k| k.as_str())
+            .or_else(|| v.as_str())?
+            .to_string();
+        let snippet = v
+            .get("snippet")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string();
+        Some((key, snippet))
+    })
+    .collect()
 }
 
 // ─── Commands ──────────────────────────────────────────────────────────────
@@ -130,7 +180,11 @@ fn cmd_baseline(chip: &str, coreml_ms: f64) {
         "model": "distilbert-base-uncased-finetuned-sst-2-english",
         "seq_len": 128,
     });
-    if write_memory(&key, &val) {
+    if write_memory(
+        &key,
+        &format!("CoreML baseline for {chip}: {coreml_ms:.3}ms"),
+        &val,
+    ) {
         println!("Baseline recorded: {chip} → CoreML {coreml_ms:.3}ms");
     }
 }
@@ -138,7 +192,6 @@ fn cmd_baseline(chip: &str, coreml_ms: f64) {
 fn cmd_publish(chip: &str, agent: &str, status: &str, median_ms: f64, description: &str) {
     let source = std::fs::read_to_string("ane_kernel/crates/ane/examples/distilbert_bench.rs")
         .unwrap_or_else(|_| "(source not found)".into());
-    let source_b64 = base64::engine::general_purpose::STANDARD.encode(&source);
     let slug = slugify(description);
     let hash = short_hash(&format!("{agent}{description}{}", chrono_now()));
     let key = format!("@{ORG}/{chip}/results/{agent}--{slug}--{hash}");
@@ -150,10 +203,14 @@ fn cmd_publish(chip: &str, agent: &str, status: &str, median_ms: f64, descriptio
         "median_ms": median_ms,
         "description": description,
         "timestamp": chrono_now(),
-        "kernel_source": source_b64,
+        "kernel_source": source,
     });
 
-    if write_memory(&key, &val) {
+    if write_memory(
+        &key,
+        &format!("[{chip}] {status}: {median_ms:.3}ms — {description}"),
+        &val,
+    ) {
         println!("Published: {key}");
         println!("  {status}: {median_ms:.3}ms — {description}");
 
@@ -172,7 +229,11 @@ fn cmd_publish(chip: &str, agent: &str, status: &str, median_ms: f64, descriptio
                         "timestamp": chrono_now(),
                         "previous_best_ms": best_ms,
                     });
-                    write_memory(&format!("@{ORG}/{chip}/best/metadata"), &best_val);
+                    write_memory(
+                        &format!("@{ORG}/{chip}/best/metadata"),
+                        &format!("Best for {chip}: {median_ms:.3}ms — {description}"),
+                        &best_val,
+                    );
                     println!("  New best for {chip}! {best_ms:.3}ms → {median_ms:.3}ms");
                 }
             } else {
@@ -183,7 +244,11 @@ fn cmd_publish(chip: &str, agent: &str, status: &str, median_ms: f64, descriptio
                     "description": description,
                     "timestamp": chrono_now(),
                 });
-                write_memory(&format!("@{ORG}/{chip}/best/metadata"), &best_val);
+                write_memory(
+                    &format!("@{ORG}/{chip}/best/metadata"),
+                    &format!("First best for {chip}: {median_ms:.3}ms"),
+                    &best_val,
+                );
                 println!("  First best for {chip}: {median_ms:.3}ms");
             }
         }
@@ -200,7 +265,7 @@ fn cmd_insight(chip: &str, agent: &str, text: &str) {
         "insight": text,
         "timestamp": chrono_now(),
     });
-    if write_memory(&key, &val) {
+    if write_memory(&key, &format!("[{chip}] {text}"), &val) {
         println!("Insight: {key}");
     }
 }
@@ -216,20 +281,26 @@ fn cmd_hypothesis(chip: &str, agent: &str, title: &str, text: &str) {
         "hypothesis": text,
         "timestamp": chrono_now(),
     });
-    if write_memory(&key, &val) {
+    if write_memory(&key, &format!("[{chip}] {title}: {text}"), &val) {
         println!("Hypothesis: {key}");
     }
 }
 
 fn cmd_results(chip: &str) {
-    let keys = list_memories(&format!("@{ORG}/{chip}/results/"));
+    let keys = list_keys(&format!("@{ORG}/{chip}/results/"));
     if keys.is_empty() {
         println!("No results for {chip}");
         return;
     }
     println!("Results for {chip}:");
     for key in &keys {
-        if let Some(val) = read_memory(key) {
+        // list_keys returns relative key_name, get_memory needs full @org/ prefix
+        let full_key = if key.starts_with('@') {
+            key.clone()
+        } else {
+            format!("@{ORG}/{key}")
+        };
+        if let Some(val) = read_memory(&full_key) {
             let ms = val.get("median_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
             let status = val.get("status").and_then(|v| v.as_str()).unwrap_or("?");
             let desc = val
@@ -267,7 +338,7 @@ fn cmd_best(chip: &str) {
 }
 
 fn cmd_insights(chip: &str) {
-    let keys = list_memories(&format!("@{ORG}/{chip}/insights/"));
+    let keys = list_keys(&format!("@{ORG}/{chip}/insights/"));
     if keys.is_empty() {
         println!("No insights for {chip}");
         return;

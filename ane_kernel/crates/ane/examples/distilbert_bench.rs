@@ -399,6 +399,152 @@ fn compile_fused_two_layers(
     g.compile(NSQualityOfService::UserInteractive)
 }
 
+/// Two POST-norm encoder layers + classifier head fused into one ANE graph.
+/// Output shape: (NUM_CLASSES, 1, SEQ_LEN) — read position 0 for [CLS] logits.
+fn compile_fused_two_layers_with_classifier(
+    w0: &LayerWeights,
+    w1: &LayerWeights,
+    mw: &ModelWeights,
+) -> Result<Executable, ane::Error> {
+    let mut g = Graph::new();
+    let x = g.placeholder(Shape::spatial(DIM, 1, SEQ_LEN));
+    let hw = [0, 1, 3, 2];
+    let scale = g.constant_with_scalar(1.0 / (HEAD_DIM as f32).sqrt(), scalar());
+
+    // === Layer 0 (POST-norm) ===
+    let q = g.inner_product(x, &w0.q_w, DIM, DIM);
+    let q_b = g.constant(&w0.q_b, ch(DIM));
+    let q = g.addition(q, q_b);
+    let k = g.inner_product(x, &w0.k_w, DIM, DIM);
+    let k_b = g.constant(&w0.k_b, ch(DIM));
+    let k = g.addition(k, k_b);
+    let v = g.inner_product(x, &w0.v_w, DIM, DIM);
+    let v_b = g.constant(&w0.v_b, ch(DIM));
+    let v = g.addition(v, v_b);
+    let q = g.reshape(
+        q,
+        Shape {
+            batch: 1,
+            channels: NUM_HEADS,
+            height: HEAD_DIM,
+            width: SEQ_LEN,
+        },
+    );
+    let k = g.reshape(
+        k,
+        Shape {
+            batch: 1,
+            channels: NUM_HEADS,
+            height: HEAD_DIM,
+            width: SEQ_LEN,
+        },
+    );
+    let v = g.reshape(
+        v,
+        Shape {
+            batch: 1,
+            channels: NUM_HEADS,
+            height: HEAD_DIM,
+            width: SEQ_LEN,
+        },
+    );
+    let q = g.transpose(q, hw);
+    let k = g.transpose(k, hw);
+    let v = g.transpose(v, hw);
+    let raw = g.matrix_multiplication(q, k, false, true);
+    let scores = g.multiplication(raw, scale);
+    let probs = g.soft_max(scores, -1);
+    let attn_raw = g.matrix_multiplication(probs, v, false, false);
+    let attn = g.transpose(attn_raw, hw);
+    let attn = g.reshape(attn, Shape::spatial(DIM, 1, SEQ_LEN));
+    let o = g.inner_product(attn, &w0.out_w, DIM, DIM);
+    let o_b = g.constant(&w0.out_b, ch(DIM));
+    let o = g.addition(o, o_b);
+    let sa0 = g.addition(o, x);
+    let sa0 = layer_norm(&mut g, sa0, &w0.sa_ln_w, &w0.sa_ln_b, DIM, 1e-12);
+    let fc1 = g.inner_product(sa0, &w0.ffn1_w, DIM, FFN_DIM);
+    let fc1_b = g.constant(&w0.ffn1_b, ch(FFN_DIM));
+    let fc1 = g.addition(fc1, fc1_b);
+    let fc1 = gelu(&mut g, fc1);
+    let fc2 = g.inner_product(fc1, &w0.ffn2_w, FFN_DIM, DIM);
+    let fc2_b = g.constant(&w0.ffn2_b, ch(DIM));
+    let fc2 = g.addition(fc2, fc2_b);
+    let x1 = g.addition(fc2, sa0);
+    let x1 = layer_norm(&mut g, x1, &w0.ffn_ln_w, &w0.ffn_ln_b, DIM, 1e-12);
+
+    // === Layer 1 (POST-norm) ===
+    let q = g.inner_product(x1, &w1.q_w, DIM, DIM);
+    let q_b = g.constant(&w1.q_b, ch(DIM));
+    let q = g.addition(q, q_b);
+    let k = g.inner_product(x1, &w1.k_w, DIM, DIM);
+    let k_b = g.constant(&w1.k_b, ch(DIM));
+    let k = g.addition(k, k_b);
+    let v = g.inner_product(x1, &w1.v_w, DIM, DIM);
+    let v_b = g.constant(&w1.v_b, ch(DIM));
+    let v = g.addition(v, v_b);
+    let q = g.reshape(
+        q,
+        Shape {
+            batch: 1,
+            channels: NUM_HEADS,
+            height: HEAD_DIM,
+            width: SEQ_LEN,
+        },
+    );
+    let k = g.reshape(
+        k,
+        Shape {
+            batch: 1,
+            channels: NUM_HEADS,
+            height: HEAD_DIM,
+            width: SEQ_LEN,
+        },
+    );
+    let v = g.reshape(
+        v,
+        Shape {
+            batch: 1,
+            channels: NUM_HEADS,
+            height: HEAD_DIM,
+            width: SEQ_LEN,
+        },
+    );
+    let q = g.transpose(q, hw);
+    let k = g.transpose(k, hw);
+    let v = g.transpose(v, hw);
+    let raw = g.matrix_multiplication(q, k, false, true);
+    let scores = g.multiplication(raw, scale);
+    let probs = g.soft_max(scores, -1);
+    let attn_raw = g.matrix_multiplication(probs, v, false, false);
+    let attn = g.transpose(attn_raw, hw);
+    let attn = g.reshape(attn, Shape::spatial(DIM, 1, SEQ_LEN));
+    let o = g.inner_product(attn, &w1.out_w, DIM, DIM);
+    let o_b = g.constant(&w1.out_b, ch(DIM));
+    let o = g.addition(o, o_b);
+    let sa1 = g.addition(o, x1);
+    let sa1 = layer_norm(&mut g, sa1, &w1.sa_ln_w, &w1.sa_ln_b, DIM, 1e-12);
+    let fc1 = g.inner_product(sa1, &w1.ffn1_w, DIM, FFN_DIM);
+    let fc1_b = g.constant(&w1.ffn1_b, ch(FFN_DIM));
+    let fc1 = g.addition(fc1, fc1_b);
+    let fc1 = gelu(&mut g, fc1);
+    let fc2 = g.inner_product(fc1, &w1.ffn2_w, FFN_DIM, DIM);
+    let fc2_b = g.constant(&w1.ffn2_b, ch(DIM));
+    let fc2 = g.addition(fc2, fc2_b);
+    let out = g.addition(fc2, sa1);
+    let out = layer_norm(&mut g, out, &w1.ffn_ln_w, &w1.ffn_ln_b, DIM, 1e-12);
+
+    // === Classifier head ===
+    let pre = g.inner_product(out, &mw.pre_cls_w, DIM, DIM);
+    let pre_b = g.constant(&mw.pre_cls_b, ch(DIM));
+    let pre = g.addition(pre, pre_b);
+    let pre = g.relu(pre);
+    let cls = g.inner_product(pre, &mw.cls_w, DIM, NUM_CLASSES);
+    let cls_b = g.constant(&mw.cls_b, ch(NUM_CLASSES));
+    let _ = g.addition(cls, cls_b);
+
+    g.compile(NSQualityOfService::UserInteractive)
+}
+
 /// Classifier head: pre_classifier (768→768, ReLU) + classifier (768→2)
 fn compile_classifier(w: &ModelWeights) -> Executable {
     let mut g = Graph::new();
@@ -423,25 +569,25 @@ fn compile_classifier(w: &ModelWeights) -> Executable {
 
 fn run_inference(
     layer_exes: &[Executable],
-    cls_exe: &Executable,
     hidden_a: &TensorData,
     hidden_b: &TensorData,
     cls_out: &TensorData,
 ) {
-    for (i, exe) in layer_exes.iter().enumerate() {
+    // First N-1 layers output DIM-sized hidden state
+    for i in 0..layer_exes.len() - 1 {
         let (src, dst) = if i % 2 == 0 {
             (hidden_a, hidden_b)
         } else {
             (hidden_b, hidden_a)
         };
-        exe.run(&[src], &[dst]).unwrap();
+        layer_exes[i].run_cached_direct(&[src], &[dst]).unwrap();
     }
-    let final_h = if layer_exes.len() % 2 == 0 {
-        hidden_a
-    } else {
-        hidden_b
-    };
-    cls_exe.run(&[final_h], &[cls_out]).unwrap();
+    // Last exe includes classifier — outputs NUM_CLASSES-sized tensor
+    let last = layer_exes.len() - 1;
+    let src = if last % 2 == 0 { hidden_a } else { hidden_b };
+    layer_exes[last]
+        .run_cached_direct(&[src], &[cls_out])
+        .unwrap();
 }
 
 fn classify(cls_out: &TensorData) -> (f32, f32, &'static str) {
@@ -475,20 +621,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprint!("  Compiling ANE graphs... ");
     let compile_start = Instant::now();
 
-    // Try 2-layer fusion: 6 layers → 3 graphs + 1 classifier = 4 dispatches
+    // 2-layer fusion + classifier merged into last graph: 6 layers → 3 dispatches
     let layer_exes: Vec<Executable> = vec![
         compile_fused_two_layers(&weights.layers[0], &weights.layers[1]).expect("fuse 0-1"),
         compile_fused_two_layers(&weights.layers[2], &weights.layers[3]).expect("fuse 2-3"),
-        compile_fused_two_layers(&weights.layers[4], &weights.layers[5]).expect("fuse 4-5"),
+        compile_fused_two_layers_with_classifier(&weights.layers[4], &weights.layers[5], &weights)
+            .expect("fuse 4-5+cls"),
     ];
-    let fused = true;
-    let cls_exe = compile_classifier(&weights);
-    let num_dispatches = layer_exes.len() + 1;
+    let num_dispatches = layer_exes.len();
     eprintln!(
-        "ok ({:.1}s, {} dispatches{})",
+        "ok ({:.1}s, {} dispatches, 2-layer fusion + classifier merged)",
         compile_start.elapsed().as_secs_f64(),
         num_dispatches,
-        if fused { ", 2-layer fusion" } else { "" }
     );
 
     // Allocate IOSurfaces (reused across inferences)
@@ -579,7 +723,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // === Quick sanity check ===
     embed_sentence("I love this movie!", &hidden_a);
-    run_inference(&layer_exes, &cls_exe, &hidden_a, &hidden_b, &cls_out);
+    run_inference(&layer_exes, &hidden_a, &hidden_b, &cls_out);
     let (neg, pos, label) = classify(&cls_out);
     eprintln!("  Sanity: \"I love this movie!\" → {label} (neg={neg:.2}, pos={pos:.2})");
 
@@ -589,14 +733,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Warmup with a real sentence
     embed_sentence("This is a test sentence for warmup.", &hidden_a);
     for _ in 0..50 {
-        run_inference(&layer_exes, &cls_exe, &hidden_a, &hidden_b, &cls_out);
+        run_inference(&layer_exes, &hidden_a, &hidden_b, &cls_out);
     }
 
     // Timed runs (embedding is pre-computed, we time only the ANE forward pass)
     let mut times = Vec::with_capacity(1000);
     for _ in 0..1000 {
         let start = Instant::now();
-        run_inference(&layer_exes, &cls_exe, &hidden_a, &hidden_b, &cls_out);
+        run_inference(&layer_exes, &hidden_a, &hidden_b, &cls_out);
         times.push(start.elapsed().as_micros() as f64 / 1000.0);
     }
 

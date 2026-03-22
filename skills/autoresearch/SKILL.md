@@ -2,7 +2,7 @@
 name: autoresearch
 description: "Optimize DistilBERT inference latency on ANE. Beat CoreML."
 argument-hint: "[focus]"
-allowed-tools: Bash(*), Read, Write, Edit, Glob, Grep, Agent
+allowed-tools: Bash(make *), Bash(git *), Bash(ane-bench *), Bash(export *), Bash(cd *), Read(ane_kernel/crates/ane/examples/distilbert_bench.rs), Edit(ane_kernel/crates/ane/examples/distilbert_bench.rs)
 triggers:
   - autoresearch
   - optimize
@@ -11,9 +11,9 @@ triggers:
 
 # autoresearch
 
-Optimize DistilBERT inference latency on Apple Neural Engine using the private `_ANEInMemoryModel` API. Beat Apple's CoreML on the same model, same hardware.
+Optimize DistilBERT inference latency on Apple Neural Engine via the private API. Beat CoreML on the same model, same hardware.
 
-**Metric: median inference latency in milliseconds. Lower is better.**
+**Metric: median latency in ms. Lower is better. CoreML baseline: 5.858ms.**
 
 ## Setup
 
@@ -22,142 +22,65 @@ cd "${CLAUDE_SKILL_DIR}/../.."
 make build
 cd ane_kernel && cargo build --release -p ane-bench && cd ..
 export PATH="${PATH}:$(pwd)/ane_kernel/target/release"
-ane-bench chip
 ```
 
-If collaborative mode is active (Ensue API key exists), read `collab.md` for the full coordination protocol — per-chip namespaces, publishing rules, cross-chip insights.
+## Rules
 
-## Editable file
+- Edit ONLY `ane_kernel/crates/ane/examples/distilbert_bench.rs`
+- Do NOT read any other source files. The API is below.
+- `make verify` THEN `make bench`. Never skip verify.
+- `Executable` has one method: `exe.run(&[&input], &[&output])`. No variants.
+- Publish result, insight, and hypothesis after every experiment.
 
-One file. All experimentation happens here:
-
-`ane_kernel/crates/ane/examples/distilbert_bench.rs`
-
-## Read-only
-
-- `ane_kernel/crates/ane/src/` — ANE bindings
-- `ane_kernel/crates/ane/examples/distilbert_verify.rs` — correctness tests
-- `Makefile`
-
-## The first run
-
-Before optimizing, establish baselines:
-
-```bash
-make verify                        # must pass 8/8
-make bench                         # record median latency
-ane-bench baseline 5.858           # record CoreML baseline (5.858ms on M1 Max)
-ane-bench publish --agent=<NAME> --status=keep --median=<X.X> --description="baseline"
-```
-
-## The loop
+## Loop
 
 ```
 LOOP FOREVER:
-  1. THINK    — ane-bench results, best, insights, search
-  2. IMPLEMENT — edit distilbert_bench.rs
-  3. make build
-  4. make verify — MUST pass 8/8. If not, revert immediately.
-  5. make bench — record median
-  6. PUBLISH  — always, keep or discard
-  7. DECIDE   — keep: commit. discard: git checkout distilbert_bench.rs
+  1. THINK   — ane-bench results, best, search
+  2. Read distilbert_bench.rs
+  3. Hypothesize — what and why
+  4. Edit
+  5. make build
+  6. make verify — revert if fails
+  7. make bench — record median
+  8. PUBLISH — ane-bench publish + insight + hypothesis
+  9. Keep (commit) or revert
 ```
 
-### THINK
+## Ensue
 
-Query Ensue with intention. Don't browse — ask specific questions scoped to a namespace:
+Namespace: `@sai_ane/<chip>/`. Key file: `.autoresearch-key`.
 
 ```bash
-# What has been tried on this chip?
-ane-bench results
-
-# What's the number to beat?
-ane-bench best
-
-# What did other agents learn about a specific topic?
-ane-bench search "dispatch overhead"        # search this chip's full namespace
-ane-bench search "IOSurface conversion"     # search for specific bottleneck
-ane-bench search "layer fusion runtime"     # search for failure modes
-
-# What insights exist?
-ane-bench insights
-
-# Cross-chip: check what worked on other chips
-# (manually query with different chip prefix if needed)
+ane-bench chip                       # detect chip
+ane-bench results                    # what's been tried
+ane-bench best                       # number to beat + baseline
+ane-bench search "topic"             # semantic search
+ane-bench insights                   # what others learned
+ane-bench publish --agent=X --status=keep --median=X.X --description="what: detail"
+ane-bench insight --agent=X "observation and why"
+ane-bench hypothesis --agent=X --title="idea" --text="reasoning"
 ```
 
-Each search should have a PURPOSE. Not "what's there?" but "has anyone tried X?" or "what causes Y?"
+Each result includes the full `distilbert_bench.rs` source. Any agent can reproduce any experiment.
 
-### VERIFY (mandatory)
+## API
 
-```bash
-make verify   # exit 0 = pass, exit 1 = fail
-```
+Graph ops (methods on `Graph`, tensors are 4D NCHW `Shape { batch, channels, height, width }`):
 
-If ANY test fails, the change is wrong. Revert. Do not bench. Do not publish.
+`inner_product(src, &[f32], in_ch, out_ch)`, `matrix_multiplication(x, y, tx, ty)`, `addition`, `subtraction`, `multiplication`, `division`, `power`, `sigmoid`, `relu`, `tanh`, `reshape(x, Shape)`, `transpose(x, [4])`, `slice(x, begin, size)`, `concat(&[T], axis)`, `reduce_sum(x, axis)`, `reduce_mean(x, axis)`, `soft_max(x, axis)`, `placeholder(Shape)`, `constant(&[f32], Shape)`, `constant_with_scalar(f32, Shape)`
 
-### PUBLISH (mandatory, every experiment)
+Compile: `graph.compile(NSQualityOfService::UserInteractive)` → `Executable`
 
-Three things after every experiment — no exceptions:
+IOSurface: `TensorData::new(shape)`, `.as_f32_slice()`, `.as_f32_slice_mut()`, `.copy_from_f32(&[f32])`
 
-1. **Result** — the measurement:
-```bash
-ane-bench publish \
-  --agent=<NAME> \
-  --status=keep \
-  --median=4.79 \
-  --description="2-layer fusion: 7→4 dispatches, saves 0.3ms dispatch overhead"
-```
+## Constraints
 
-2. **Insight** — what you learned and WHY:
-```bash
-ane-bench insight --agent=<NAME> \
-  "fusing 2 encoder layers per graph saves ~0.095ms per eliminated dispatch. \
-   3-layer fusion compiles but fails at runtime — ANE hardware limit on graph depth."
-```
-
-3. **Hypothesis** — what to try next:
-```bash
-ane-bench hypothesis --agent=<NAME> \
-  --title="merge classifier into last encoder layer" \
-  --text="classifier is tiny (768→2). merging into layer 4-5 graph would \
-   eliminate 1 dispatch (0.095ms). graph op count stays under runtime limit."
-```
-
-### Description format
-
-Use `<what> <old> → <new>: <why>` so results are scannable:
-- `"2-layer fusion: 7→4 dispatches, saves 0.3ms dispatch overhead"`
-- `"QoS Default → UserInteractive: higher scheduling priority"`
-- `"embedding LN moved to ANE: eliminates 128×768 f32↔fp16 CPU round-trip"`
-
-Bad: `"made it faster"`, `"tried something"`, `"changed fusion"`
-
-## Namespace
-
-Each chip gets its own namespace under `@ane-bench/<chip>/`:
-
-```
-@ane-bench/m1-max/
-  baseline              CoreML measurement for this chip
-  best/metadata         best private API result
-  results/              all experiments
-  insights/             what's been learned
-  hypotheses/           ideas to try
-
-@ane-bench/m4/
-  baseline
-  best/metadata
-  results/
-  ...
-```
-
-Results from one chip inform experiments on others — insights about dispatch overhead, graph fusion limits, and op scheduling are transferable.
-
-## ANE bindings reference
-
-Run `/ane-private-api` to understand the ANE private API — what ops exist, how the graph builder works, compilation lifecycle, IOSurface I/O, hardware constraints. Read this before your first experiment.
+- ~0.095ms overhead per `run()` call
+- fp16 only
+- Placeholder width ≥ 64
+- Fusing 3+ encoder layers compiles but crashes at runtime
 
 ## Never stop
 
-Do not pause to ask the human. The human may be asleep. If you run out of ideas, run `/ane-private-api` and read the bindings source for new ops. Profile where time is actually spent. Try radical restructuring.
+Do not ask the human. Do not explore files. Edit, build, verify, bench, publish, decide. Repeat.
