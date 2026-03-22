@@ -2,7 +2,7 @@
 name: autoresearch
 description: "Optimize DistilBERT inference latency on ANE. Beat CoreML."
 argument-hint: "[focus]"
-allowed-tools: Bash(make *), Bash(git *), Bash(./ane_kernel/target/release/ane-bench *), Bash(python3 *), Read(ane_kernel/crates/ane/examples/distilbert_model.rs), Edit(ane_kernel/crates/ane/examples/distilbert_model.rs), Read(ane_kernel/crates/ane/examples/distilbert_bench.rs), Edit(ane_kernel/crates/ane/examples/distilbert_bench.rs)
+allowed-tools: Bash(make *), Bash(git *), Bash(./ane_kernel/target/release/ane-bench *), Bash(python3 *), Read(ane_kernel/crates/ane/examples/distilbert_model.rs), Edit(ane_kernel/crates/ane/examples/distilbert_model.rs)
 triggers:
   - autoresearch
   - optimize
@@ -42,7 +42,7 @@ Then record the CoreML median:
 
 ## Rules
 
-- Edit `ane_kernel/crates/ane/examples/distilbert_model.rs` (model) and `distilbert_bench.rs` (benchmark)
+- Edit ONLY `ane_kernel/crates/ane/examples/distilbert_model.rs`
 - Do NOT read any other source files. The `/ane-private-api` skill has the full API reference if needed.
 - `make verify` THEN `make bench`. Never skip verify.
 - `Executable` has one method: `exe.run(&[&input], &[&output])`. No variants.
@@ -53,7 +53,7 @@ Then record the CoreML median:
 ```
 LOOP FOREVER:
   1. THINK   — ./ane_kernel/target/release/ane-bench results
-  2. Read distilbert_model.rs and distilbert_bench.rs
+  2. Read distilbert_model.rs
   3. Hypothesize — what and why
   4. Edit
   5. make build
