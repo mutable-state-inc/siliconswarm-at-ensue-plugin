@@ -196,7 +196,75 @@ fn compile_encoder_layer(w: &LayerWeights) -> Executable {
     let ffn_out = g.addition(fc2, fc2_b);
     let _ = g.addition(ffn_out, h); // residual
 
-    g.compile(NSQualityOfService::Default).expect("encoder layer compile")
+    g.compile(NSQualityOfService::UserInteractive).expect("encoder layer compile")
+}
+
+/// Two encoder layers fused into one ANE graph — halves dispatch count.
+fn compile_fused_two_layers(w0: &LayerWeights, w1: &LayerWeights) -> Result<Executable, ane::Error> {
+    let mut g = Graph::new();
+    let x = g.placeholder(Shape::spatial(DIM, 1, SEQ_LEN));
+
+    // === Layer 0 ===
+    let normed = layer_norm(&mut g, x, &w0.sa_ln_w, &w0.sa_ln_b, DIM, 1e-12);
+    let q = g.inner_product(normed, &w0.q_w, DIM, DIM);
+    let q_b = g.constant(&w0.q_b, ch(DIM)); let q = g.addition(q, q_b);
+    let k = g.inner_product(normed, &w0.k_w, DIM, DIM);
+    let k_b = g.constant(&w0.k_b, ch(DIM)); let k = g.addition(k, k_b);
+    let v = g.inner_product(normed, &w0.v_w, DIM, DIM);
+    let v_b = g.constant(&w0.v_b, ch(DIM)); let v = g.addition(v, v_b);
+    let q = g.reshape(q, Shape { batch: 1, channels: NUM_HEADS, height: HEAD_DIM, width: SEQ_LEN });
+    let k = g.reshape(k, Shape { batch: 1, channels: NUM_HEADS, height: HEAD_DIM, width: SEQ_LEN });
+    let v = g.reshape(v, Shape { batch: 1, channels: NUM_HEADS, height: HEAD_DIM, width: SEQ_LEN });
+    let hw = [0, 1, 3, 2];
+    let q = g.transpose(q, hw); let k = g.transpose(k, hw); let v = g.transpose(v, hw);
+    let scale = g.constant_with_scalar(1.0 / (HEAD_DIM as f32).sqrt(), scalar());
+    let raw = g.matrix_multiplication(q, k, false, true);
+    let scores = g.multiplication(raw, scale);
+    let probs = g.soft_max(scores, -1);
+    let attn_raw = g.matrix_multiplication(probs, v, false, false);
+    let attn = g.transpose(attn_raw, hw);
+    let attn = g.reshape(attn, Shape::spatial(DIM, 1, SEQ_LEN));
+    let o = g.inner_product(attn, &w0.out_w, DIM, DIM);
+    let o_b = g.constant(&w0.out_b, ch(DIM)); let o = g.addition(o, o_b);
+    let h = g.addition(o, x);
+    let normed2 = layer_norm(&mut g, h, &w0.ffn_ln_w, &w0.ffn_ln_b, DIM, 1e-12);
+    let fc1 = g.inner_product(normed2, &w0.ffn1_w, DIM, FFN_DIM);
+    let fc1_b = g.constant(&w0.ffn1_b, ch(FFN_DIM)); let fc1 = g.addition(fc1, fc1_b);
+    let fc1 = gelu(&mut g, fc1);
+    let fc2 = g.inner_product(fc1, &w0.ffn2_w, FFN_DIM, DIM);
+    let fc2_b = g.constant(&w0.ffn2_b, ch(DIM)); let fc2 = g.addition(fc2, fc2_b);
+    let x1 = g.addition(fc2, h);
+
+    // === Layer 1 ===
+    let normed = layer_norm(&mut g, x1, &w1.sa_ln_w, &w1.sa_ln_b, DIM, 1e-12);
+    let q = g.inner_product(normed, &w1.q_w, DIM, DIM);
+    let q_b = g.constant(&w1.q_b, ch(DIM)); let q = g.addition(q, q_b);
+    let k = g.inner_product(normed, &w1.k_w, DIM, DIM);
+    let k_b = g.constant(&w1.k_b, ch(DIM)); let k = g.addition(k, k_b);
+    let v = g.inner_product(normed, &w1.v_w, DIM, DIM);
+    let v_b = g.constant(&w1.v_b, ch(DIM)); let v = g.addition(v, v_b);
+    let q = g.reshape(q, Shape { batch: 1, channels: NUM_HEADS, height: HEAD_DIM, width: SEQ_LEN });
+    let k = g.reshape(k, Shape { batch: 1, channels: NUM_HEADS, height: HEAD_DIM, width: SEQ_LEN });
+    let v = g.reshape(v, Shape { batch: 1, channels: NUM_HEADS, height: HEAD_DIM, width: SEQ_LEN });
+    let q = g.transpose(q, hw); let k = g.transpose(k, hw); let v = g.transpose(v, hw);
+    let raw = g.matrix_multiplication(q, k, false, true);
+    let scores = g.multiplication(raw, scale);
+    let probs = g.soft_max(scores, -1);
+    let attn_raw = g.matrix_multiplication(probs, v, false, false);
+    let attn = g.transpose(attn_raw, hw);
+    let attn = g.reshape(attn, Shape::spatial(DIM, 1, SEQ_LEN));
+    let o = g.inner_product(attn, &w1.out_w, DIM, DIM);
+    let o_b = g.constant(&w1.out_b, ch(DIM)); let o = g.addition(o, o_b);
+    let h = g.addition(o, x1);
+    let normed2 = layer_norm(&mut g, h, &w1.ffn_ln_w, &w1.ffn_ln_b, DIM, 1e-12);
+    let fc1 = g.inner_product(normed2, &w1.ffn1_w, DIM, FFN_DIM);
+    let fc1_b = g.constant(&w1.ffn1_b, ch(FFN_DIM)); let fc1 = g.addition(fc1, fc1_b);
+    let fc1 = gelu(&mut g, fc1);
+    let fc2 = g.inner_product(fc1, &w1.ffn2_w, FFN_DIM, DIM);
+    let fc2_b = g.constant(&w1.ffn2_b, ch(DIM)); let fc2 = g.addition(fc2, fc2_b);
+    let _ = g.addition(fc2, h);
+
+    g.compile(NSQualityOfService::UserInteractive)
 }
 
 /// Classifier head: pre_classifier (768→768, ReLU) + classifier (768→2)
@@ -215,7 +283,7 @@ fn compile_classifier(w: &ModelWeights) -> Executable {
     let cls_b = g.constant(&w.cls_b, ch(NUM_CLASSES));
     let _ = g.addition(cls, cls_b);
 
-    g.compile(NSQualityOfService::Default).expect("classifier compile")
+    g.compile(NSQualityOfService::UserInteractive).expect("classifier compile")
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────
@@ -239,14 +307,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let weights = load_weights(&st);
     eprintln!("ok ({}M params)", 66);
 
-    // Compile ANE graphs
+    // Compile ANE graphs — try fused 2-layer graphs first
     eprint!("  Compiling ANE graphs... ");
     let compile_start = Instant::now();
-    let layer_exes: Vec<Executable> = weights.layers.iter()
-        .map(|lw| compile_encoder_layer(lw))
-        .collect();
+
+    // Try 2-layer fusion: 6 layers → 3 graphs + 1 classifier = 4 dispatches
+    let layer_exes: Vec<Executable> = vec![
+        compile_fused_two_layers(&weights.layers[0], &weights.layers[1]).expect("fuse 0-1"),
+        compile_fused_two_layers(&weights.layers[2], &weights.layers[3]).expect("fuse 2-3"),
+        compile_fused_two_layers(&weights.layers[4], &weights.layers[5]).expect("fuse 4-5"),
+    ];
+    let fused = true;
     let cls_exe = compile_classifier(&weights);
-    eprintln!("ok ({:.1}s, {} graphs)", compile_start.elapsed().as_secs_f64(), layer_exes.len() + 1);
+    let num_dispatches = layer_exes.len() + 1;
+    eprintln!("ok ({:.1}s, {} dispatches{})",
+        compile_start.elapsed().as_secs_f64(), num_dispatches,
+        if fused { ", 2-layer fusion" } else { "" });
 
     // Allocate IOSurfaces (reused across inferences)
     let mut hidden_a = TensorData::new(Shape::spatial(DIM, 1, SEQ_LEN));
