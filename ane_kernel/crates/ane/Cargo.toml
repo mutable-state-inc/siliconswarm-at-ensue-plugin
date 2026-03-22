@@ -36,3 +36,6 @@ tokenizers.workspace = true
 half.workspace = true
 rand.workspace = true
 metal.workspace = true
+[[example]]
+name = "test_ip2"
+path = "examples/test_ip2.rs"
