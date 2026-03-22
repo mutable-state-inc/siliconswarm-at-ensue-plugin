@@ -243,7 +243,10 @@ fn cmd_publish(chip: &str, agent: &str, status: &str, median_ms: f64, descriptio
                     });
                     let best_key = format!("@{ORG}/{chip}/best/metadata");
                     let best_desc = format!("Best for {chip}: {median_ms:.3}ms — {description}");
-                    rpc("delete_memory", serde_json::json!({"key_names": [&best_key]}));
+                    rpc(
+                        "delete_memory",
+                        serde_json::json!({"key_names": [&best_key]}),
+                    );
                     write_memory(&best_key, &best_desc, &best_val);
                     println!("  New best for {chip}! {best_ms:.3}ms → {median_ms:.3}ms");
                 }
@@ -257,7 +260,10 @@ fn cmd_publish(chip: &str, agent: &str, status: &str, median_ms: f64, descriptio
                 });
                 let best_key = format!("@{ORG}/{chip}/best/metadata");
                 let best_desc = format!("Best for {chip}: {median_ms:.3}ms — {description}");
-                rpc("delete_memory", serde_json::json!({"key_names": [&best_key]}));
+                rpc(
+                    "delete_memory",
+                    serde_json::json!({"key_names": [&best_key]}),
+                );
                 write_memory(&best_key, &best_desc, &best_val);
                 println!("  First best for {chip}: {median_ms:.3}ms");
             }
@@ -329,15 +335,32 @@ fn cmd_best(chip: &str) {
     let mut best_desc = String::new();
     let mut best_agent = String::new();
     for key in &keys {
-        let full_key = if key.starts_with('@') { key.clone() } else { format!("@{ORG}/{key}") };
+        let full_key = if key.starts_with('@') {
+            key.clone()
+        } else {
+            format!("@{ORG}/{key}")
+        };
         if let Some(val) = read_memory(&full_key) {
             let status = val.get("status").and_then(|v| v.as_str()).unwrap_or("");
-            if status != "keep" { continue; }
-            let ms = val.get("median_ms").and_then(|v| v.as_f64()).unwrap_or(f64::MAX);
+            if status != "keep" {
+                continue;
+            }
+            let ms = val
+                .get("median_ms")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(f64::MAX);
             if ms < best_ms {
                 best_ms = ms;
-                best_desc = val.get("description").and_then(|v| v.as_str()).unwrap_or("?").to_string();
-                best_agent = val.get("agent").and_then(|v| v.as_str()).unwrap_or("?").to_string();
+                best_desc = val
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?")
+                    .to_string();
+                best_agent = val
+                    .get("agent")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?")
+                    .to_string();
             }
         }
     }
@@ -352,14 +375,20 @@ fn cmd_best(chip: &str) {
         });
         let best_key = format!("@{ORG}/{chip}/best/metadata");
         let best_d = format!("Best for {chip}: {best_ms:.3}ms — {best_desc}");
-        rpc("delete_memory", serde_json::json!({"key_names": [&best_key]}));
+        rpc(
+            "delete_memory",
+            serde_json::json!({"key_names": [&best_key]}),
+        );
         write_memory(&best_key, &best_d, &best_val);
     } else {
         println!("No results for {chip} yet.");
     }
     match read_memory(&format!("@{ORG}/{chip}/baseline")) {
         Some(val) => {
-            let ms = val.get("coreml_median_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let ms = val
+                .get("coreml_median_ms")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
             println!("CoreML baseline: {ms:.3}ms");
         }
         None => println!("No CoreML baseline. Run `ane-bench baseline <ms>`."),

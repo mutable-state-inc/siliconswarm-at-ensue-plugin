@@ -3,11 +3,11 @@
 #[path = "distilbert_model.rs"]
 mod distilbert_model;
 
-use std::time::Instant;
 use ane::{Shape, TensorData};
+use distilbert_model::*;
 use hf_hub::api::sync::ApiBuilder;
 use safetensors::SafeTensors;
-use distilbert_model::*;
+use std::time::Instant;
 
 const REPO_ID: &str = "distilbert-base-uncased-finetuned-sst-2-english";
 
@@ -23,39 +23,78 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sf = SafeTensors::deserialize(&sf_bytes)?;
     let mw = load(&sf);
     let tok = tokenizers::Tokenizer::from_file(
-        api.model("distilbert-base-uncased".to_string()).get("tokenizer.json")?
-    ).map_err(|e| format!("{e}"))?;
+        api.model("distilbert-base-uncased".to_string())
+            .get("tokenizer.json")?,
+    )
+    .map_err(|e| format!("{e}"))?;
     eprintln!("ok");
 
     eprint!("  Compiling... ");
     let t0 = Instant::now();
     let layer_exes: Vec<_> = mw.layers.iter().map(|lw| compile_layer(lw)).collect();
     let cls_exe = compile_classifier(&mw);
-    eprintln!("ok ({:.1}s, {} dispatches)", t0.elapsed().as_secs_f64(), layer_exes.len() + 1);
+    eprintln!(
+        "ok ({:.1}s, {} dispatches)",
+        t0.elapsed().as_secs_f64(),
+        layer_exes.len() + 1
+    );
 
     let hidden_a = TensorData::new(Shape::spatial(DIM, 1, SEQ));
     let hidden_b = TensorData::new(Shape::spatial(DIM, 1, SEQ));
-    let mask_td = TensorData::new(Shape { batch: 1, channels: 1, height: SEQ, width: SEQ });
+    let mask_td = TensorData::new(Shape {
+        batch: 1,
+        channels: 1,
+        height: SEQ,
+        width: SEQ,
+    });
     let cls_out = TensorData::new(Shape::spatial(CLS, 1, SEQ));
 
     // Sanity check
     let slen = embed(&mw, &tok, "I love this movie!", &hidden_a);
     set_mask(&mask_td, slen);
-    forward(&layer_exes, &cls_exe, &hidden_a, &hidden_b, &mask_td, &cls_out);
+    forward(
+        &layer_exes,
+        &cls_exe,
+        &hidden_a,
+        &hidden_b,
+        &mask_td,
+        &cls_out,
+    );
     let (_, _, label) = classify(&cls_out);
     eprintln!("  Sanity: \"I love this movie!\" → {label}");
 
     // Benchmark
     eprintln!("\n  Benchmarking (1000 iterations)...");
-    let slen = embed(&mw, &tok, "This is a test sentence for benchmarking.", &hidden_a);
+    let slen = embed(
+        &mw,
+        &tok,
+        "This is a test sentence for benchmarking.",
+        &hidden_a,
+    );
     set_mask(&mask_td, slen);
 
-    for _ in 0..50 { forward(&layer_exes, &cls_exe, &hidden_a, &hidden_b, &mask_td, &cls_out); }
+    for _ in 0..50 {
+        forward(
+            &layer_exes,
+            &cls_exe,
+            &hidden_a,
+            &hidden_b,
+            &mask_td,
+            &cls_out,
+        );
+    }
 
     let mut times = Vec::with_capacity(1000);
     for _ in 0..1000 {
         let start = Instant::now();
-        forward(&layer_exes, &cls_exe, &hidden_a, &hidden_b, &mask_td, &cls_out);
+        forward(
+            &layer_exes,
+            &cls_exe,
+            &hidden_a,
+            &hidden_b,
+            &mask_td,
+            &cls_out,
+        );
         times.push(start.elapsed().as_micros() as f64 / 1000.0);
     }
 
@@ -65,7 +104,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     eprintln!();
     eprintln!("═══════════════════════════════════════════════════════");
-    eprintln!("  Results (ANE private API, {LAYERS} layers, {} dispatches)", LAYERS + 1);
+    eprintln!(
+        "  Results (ANE private API, {LAYERS} layers, {} dispatches)",
+        LAYERS + 1
+    );
     eprintln!("═══════════════════════════════════════════════════════");
     eprintln!("  Mean:   {mean:.3} ms");
     eprintln!("  Median: {median:.3} ms");
