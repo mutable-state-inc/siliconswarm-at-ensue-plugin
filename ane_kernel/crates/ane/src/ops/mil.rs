@@ -2,15 +2,15 @@ use std::collections::HashSet;
 
 use super::{
     activation_mode::ActivationMode,
-    shape::Shape,
-    pad_mode::PadMode,
     elementwise::ElementwiseOpType,
     op::Op,
     pad_fill_mode::PadFillMode,
+    pad_mode::PadMode,
     pool_type::PoolType,
     reduction_mode::ReductionMode,
     scalar::ScalarOpType,
-    weights::{build_mil_weight_blob, mil_blob_chunk_offset, WeightBlob},
+    shape::Shape,
+    weights::{WeightBlob, build_mil_weight_blob, mil_blob_chunk_offset},
 };
 
 const MIL_BUILD_INFO: &str = r#"[buildInfo = dict<string, string>({{"coremlc-component-MIL", "3510.2.1"}, {"coremlc-version", "3505.4.1"}, {"coremltools-component-milinternal", ""}, {"coremltools-version", "9.0"}})]"#;
@@ -25,14 +25,8 @@ pub(crate) fn emit_mil(ops: &[Op], shapes: &[(String, Shape)]) -> (String, Box<[
         .map(|(name, shape)| (name.as_str(), *shape))
         .collect();
 
-    let all_tops: HashSet<&str> = ops
-        .iter()
-        .flat_map(|l| tops(l))
-        .collect();
-    let all_bottoms: HashSet<&str> = ops
-        .iter()
-        .flat_map(|l| bottoms(l))
-        .collect();
+    let all_tops: HashSet<&str> = ops.iter().flat_map(|l| tops(l)).collect();
+    let all_bottoms: HashSet<&str> = ops.iter().flat_map(|l| bottoms(l)).collect();
 
     let input_names: Vec<&str> = ops
         .iter()
@@ -41,7 +35,9 @@ pub(crate) fn emit_mil(ops: &[Op], shapes: &[(String, Shape)]) -> (String, Box<[
         .collect::<Vec<_>>()
         .into_iter()
         .fold(vec![], |mut acc, n| {
-            if !acc.contains(&n) { acc.push(n); }
+            if !acc.contains(&n) {
+                acc.push(n);
+            }
             acc
         });
 
@@ -52,7 +48,9 @@ pub(crate) fn emit_mil(ops: &[Op], shapes: &[(String, Shape)]) -> (String, Box<[
         .collect::<Vec<_>>()
         .into_iter()
         .fold(vec![], |mut acc, n| {
-            if !acc.contains(&n) { acc.push(n); }
+            if !acc.contains(&n) {
+                acc.push(n);
+            }
             acc
         });
 
@@ -129,23 +127,39 @@ fn collect_weights<'a>(layer: &'a Op, out: &mut Vec<&'a WeightBlob>) {
         }
         Op::InnerProduct(l) => {
             out.push(&l.weights);
-            if let Some(b) = &l.bias { out.push(b); }
+            if let Some(b) = &l.bias {
+                out.push(b);
+            }
         }
         Op::Conv(l) => {
             out.push(&l.weights);
-            if let Some(b) = &l.bias { out.push(b); }
+            if let Some(b) = &l.bias {
+                out.push(b);
+            }
         }
         Op::Deconv(l) => {
             out.push(&l.weights);
-            if let Some(b) = &l.bias { out.push(b); }
+            if let Some(b) = &l.bias {
+                out.push(b);
+            }
         }
         Op::InstanceNorm(l) => {
             out.push(&l.params);
         }
-        Op::Matmul(_) | Op::Transpose(_) | Op::SliceBySize(_) | Op::ScalarOp(_)
-        | Op::Elementwise(_) | Op::Activation(_) | Op::Softmax(_) | Op::Concat(_)
-        | Op::Reshape(_) | Op::Pooling(_) | Op::Padding(_) | Op::Flatten(_)
-        | Op::Reduction(_) | Op::DynConv(_) => {}
+        Op::Matmul(_)
+        | Op::Transpose(_)
+        | Op::SliceBySize(_)
+        | Op::ScalarOp(_)
+        | Op::Elementwise(_)
+        | Op::Activation(_)
+        | Op::Softmax(_)
+        | Op::Concat(_)
+        | Op::Reshape(_)
+        | Op::Pooling(_)
+        | Op::Padding(_)
+        | Op::Flatten(_)
+        | Op::Reduction(_)
+        | Op::DynConv(_) => {}
     }
 }
 
@@ -176,15 +190,24 @@ fn emit_layer(
 ) {
     match layer {
         Op::Constant(l) => {
-            let shape = shape_map.get(l.top.as_str()).copied().unwrap_or(Shape::channels(1));
+            let shape = shape_map
+                .get(l.top.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(1));
             let sh = mil_shape(shape);
             blobfile_ref(all_blobs, *blob_index, &sh, &format!("{}_f16", l.top), out);
             *blob_index += 1;
         }
 
         Op::InnerProduct(l) => {
-            let in_shape = shape_map.get(l.bottom.as_str()).copied().unwrap_or(Shape::channels(1));
-            let out_shape = shape_map.get(l.top.as_str()).copied().unwrap_or(Shape::channels(1));
+            let in_shape = shape_map
+                .get(l.bottom.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(1));
+            let out_shape = shape_map
+                .get(l.top.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(1));
             let in_ch = in_shape.channels;
             let out_ch = out_shape.channels;
             let n = &l.name;
@@ -233,11 +256,13 @@ fn emit_layer(
                     top = l.top,
                 ));
             }
-
         }
 
         Op::Conv(l) => {
-            let out_shape = shape_map.get(l.top.as_str()).copied().unwrap_or(Shape::channels(1));
+            let out_shape = shape_map
+                .get(l.top.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(1));
             let n = &l.name;
             let in_ch = l.input_channels;
             let out_ch = l.output_channels;
@@ -251,13 +276,22 @@ fn emit_layer(
             };
             emit_conv_constants(
                 n,
-                l.pad_top, l.pad_bottom, l.pad_left, l.pad_right,
-                1, 1, groups, groups,
+                l.pad_top,
+                l.pad_bottom,
+                l.pad_left,
+                l.pad_right,
+                1,
+                1,
+                groups,
+                groups,
                 pad_type_str,
                 out,
             );
 
-            let w_shape = format!("[{out_ch}, {per_group}, {kh}, {kw}]", per_group = in_ch / groups);
+            let w_shape = format!(
+                "[{out_ch}, {per_group}, {kh}, {kw}]",
+                per_group = in_ch / groups
+            );
             let w_var = format!("{n}_W");
             blobfile_ref(all_blobs, *blob_index, &w_shape, &w_var, out);
             *blob_index += 1;
@@ -302,7 +336,10 @@ fn emit_layer(
         }
 
         Op::Deconv(l) => {
-            let out_shape = shape_map.get(l.top.as_str()).copied().unwrap_or(Shape::channels(1));
+            let out_shape = shape_map
+                .get(l.top.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(1));
             let n = &l.name;
             let in_ch = l.input_channels;
             let out_ch = l.output_channels;
@@ -340,7 +377,10 @@ fn emit_layer(
                 ));
             }
 
-            let w_shape = format!("[{in_ch}, {per_group}, {kh}, {kw}]", per_group = out_ch / groups);
+            let w_shape = format!(
+                "[{in_ch}, {per_group}, {kh}, {kw}]",
+                per_group = out_ch / groups
+            );
             let w_var = format!("{n}_W");
             blobfile_ref(all_blobs, *blob_index, &w_shape, &w_var, out);
             *blob_index += 1;
@@ -402,7 +442,10 @@ fn emit_layer(
         }
 
         Op::Activation(l) => {
-            let shape = shape_map.get(l.top.as_str()).copied().unwrap_or(Shape::channels(1));
+            let shape = shape_map
+                .get(l.top.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(1));
             let sh = mil_shape(shape);
             let n = &l.name;
             let bot = &l.bottom;
@@ -485,7 +528,10 @@ fn emit_layer(
         }
 
         Op::Elementwise(l) => {
-            let shape = shape_map.get(l.top.as_str()).copied().unwrap_or(Shape::channels(1));
+            let shape = shape_map
+                .get(l.top.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(1));
             let sh = mil_shape(shape);
             let n = &l.name;
             let top = &l.top;
@@ -531,7 +577,10 @@ fn emit_layer(
         }
 
         Op::Softmax(l) => {
-            let shape = shape_map.get(l.top.as_str()).copied().unwrap_or(Shape::channels(1));
+            let shape = shape_map
+                .get(l.top.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(1));
             let sh = mil_shape(shape);
             let n = &l.name;
             let axis = l.axis;
@@ -546,7 +595,10 @@ fn emit_layer(
         }
 
         Op::Concat(l) => {
-            let shape = shape_map.get(l.top.as_str()).copied().unwrap_or(Shape::channels(1));
+            let shape = shape_map
+                .get(l.top.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(1));
             let sh = mil_shape(shape);
             let n = &l.name;
             let axis = l.axis;
@@ -565,7 +617,10 @@ fn emit_layer(
         }
 
         Op::Reshape(l) => {
-            let shape = shape_map.get(l.top.as_str()).copied().unwrap_or(Shape::channels(1));
+            let shape = shape_map
+                .get(l.top.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(1));
             let sh = mil_shape(shape);
             let n = &l.name;
             let [s0, s1, s2, s3] = l.target_shape;
@@ -580,9 +635,15 @@ fn emit_layer(
         }
 
         Op::Flatten(l) => {
-            let in_shape = shape_map.get(l.bottom.as_str()).copied().unwrap_or(Shape::channels(1));
+            let in_shape = shape_map
+                .get(l.bottom.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(1));
             let flat = in_shape.total_elements();
-            let out_shape = shape_map.get(l.top.as_str()).copied().unwrap_or(Shape::channels(flat));
+            let out_shape = shape_map
+                .get(l.top.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(flat));
             let sh = mil_shape(out_shape);
             let n = &l.name;
             out.push_str(&format!(
@@ -596,7 +657,10 @@ fn emit_layer(
         }
 
         Op::InstanceNorm(l) => {
-            let shape = shape_map.get(l.top.as_str()).copied().unwrap_or(Shape::channels(1));
+            let shape = shape_map
+                .get(l.top.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(1));
             let sh = mil_shape(shape);
             let n = &l.name;
             let ch = l.channels;
@@ -624,7 +688,10 @@ fn emit_layer(
         }
 
         Op::Pooling(l) => {
-            let out_shape = shape_map.get(l.top.as_str()).copied().unwrap_or(Shape::channels(1));
+            let out_shape = shape_map
+                .get(l.top.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(1));
             let sh = mil_shape(out_shape);
             let n = &l.name;
             let kh = l.kernel_height;
@@ -669,7 +736,10 @@ fn emit_layer(
         }
 
         Op::Padding(l) => {
-            let out_shape = shape_map.get(l.top.as_str()).copied().unwrap_or(Shape::channels(1));
+            let out_shape = shape_map
+                .get(l.top.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(1));
             let sh = mil_shape(out_shape);
             let n = &l.name;
 
@@ -699,7 +769,10 @@ fn emit_layer(
         }
 
         Op::Reduction(l) => {
-            let out_shape = shape_map.get(l.top.as_str()).copied().unwrap_or(Shape::channels(1));
+            let out_shape = shape_map
+                .get(l.top.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(1));
             let sh = mil_shape(out_shape);
             let n = &l.name;
 
@@ -725,7 +798,10 @@ fn emit_layer(
         }
 
         Op::Matmul(l) => {
-            let out_shape = shape_map.get(l.top.as_str()).copied().unwrap_or(Shape::channels(1));
+            let out_shape = shape_map
+                .get(l.top.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(1));
             let sh = mil_shape(out_shape);
             let n = &l.name;
             let tx = if l.transpose_x { "true" } else { "false" };
@@ -746,7 +822,10 @@ fn emit_layer(
         }
 
         Op::Transpose(l) => {
-            let out_shape = shape_map.get(l.top.as_str()).copied().unwrap_or(Shape::channels(1));
+            let out_shape = shape_map
+                .get(l.top.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(1));
             let sh = mil_shape(out_shape);
             let n = &l.name;
             let [p0, p1, p2, p3] = l.perm;
@@ -761,7 +840,10 @@ fn emit_layer(
         }
 
         Op::SliceBySize(l) => {
-            let out_shape = shape_map.get(l.top.as_str()).copied().unwrap_or(Shape::channels(1));
+            let out_shape = shape_map
+                .get(l.top.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(1));
             let sh = mil_shape(out_shape);
             let n = &l.name;
             let [b0, b1, b2, b3] = l.begin;
@@ -780,7 +862,10 @@ fn emit_layer(
         }
 
         Op::ScalarOp(l) => {
-            let out_shape = shape_map.get(l.top.as_str()).copied().unwrap_or(Shape::channels(1));
+            let out_shape = shape_map
+                .get(l.top.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(1));
             let sh = mil_shape(out_shape);
             let n = &l.name;
             let s = l.scalar;
@@ -800,7 +885,10 @@ fn emit_layer(
         }
 
         Op::DynConv(l) => {
-            let out_shape = shape_map.get(l.top.as_str()).copied().unwrap_or(Shape::channels(1));
+            let out_shape = shape_map
+                .get(l.top.as_str())
+                .copied()
+                .unwrap_or(Shape::channels(1));
             let out_sh = mil_shape(out_shape);
             let n = &l.name;
 
@@ -823,8 +911,12 @@ fn emit_layer(
 
 fn emit_conv_constants(
     n: &str,
-    pt: usize, pb: usize, pl: usize, pr: usize,
-    sh: usize, sw: usize,
+    pt: usize,
+    pb: usize,
+    pl: usize,
+    pr: usize,
+    sh: usize,
+    sw: usize,
     groups: usize,
     _n_parallel: usize,
     pad_type: &str,

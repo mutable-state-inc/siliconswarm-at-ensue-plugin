@@ -1,6 +1,6 @@
 use objc2::rc::Retained;
 use objc2::runtime::NSObject;
-use objc2::{extern_class, extern_conformance, msg_send, ClassType};
+use objc2::{ClassType, extern_class, extern_conformance, msg_send};
 use objc2_foundation::NSObjectProtocol;
 
 extern_class!(

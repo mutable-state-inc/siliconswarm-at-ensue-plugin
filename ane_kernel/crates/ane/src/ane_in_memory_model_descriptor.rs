@@ -1,7 +1,7 @@
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject};
-use objc2::{extern_class, extern_conformance, msg_send, ClassType};
-use objc2_foundation::{NSDictionary, NSData, NSObjectProtocol, NSString};
+use objc2::{ClassType, extern_class, extern_conformance, msg_send};
+use objc2_foundation::{NSData, NSDictionary, NSObjectProtocol, NSString};
 
 extern_class!(
     #[unsafe(super(NSObject))]

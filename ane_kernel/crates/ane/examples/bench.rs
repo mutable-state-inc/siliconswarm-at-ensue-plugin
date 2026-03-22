@@ -8,12 +8,11 @@
 /// - Pipeline: GPU and ANE process different layers simultaneously
 ///
 /// Run: cargo run --release --example gpu_ane_pipeline
-
 use ane::{Graph, Shape, TensorData};
 use metal::*;
 use objc2_foundation::NSQualityOfService;
-use std::time::Instant;
 use std::thread;
+use std::time::Instant;
 
 const DIM: usize = 2048;
 const HIDDEN: usize = 11008;
@@ -38,10 +37,13 @@ fn gpu_work(device: &Device, queue: &CommandQueue, ms_target: f64) {
         }
     "#;
 
-    let lib = device.new_library_with_source(shader_src, &CompileOptions::new())
+    let lib = device
+        .new_library_with_source(shader_src, &CompileOptions::new())
         .expect("shader compile");
     let func = lib.get_function("matmul_sim", None).expect("get function");
-    let pso = device.new_compute_pipeline_state_with_function(&func).expect("PSO");
+    let pso = device
+        .new_compute_pipeline_state_with_function(&func)
+        .expect("PSO");
 
     let n = 512 * 512;
     let buf_a = device.new_buffer((n * 4) as u64, MTLResourceOptions::StorageModeShared);
@@ -50,9 +52,13 @@ fn gpu_work(device: &Device, queue: &CommandQueue, ms_target: f64) {
 
     unsafe {
         let ptr = buf_a.contents() as *mut f32;
-        for i in 0..n { *ptr.add(i) = 0.01; }
+        for i in 0..n {
+            *ptr.add(i) = 0.01;
+        }
         let ptr_b = buf_b.contents() as *mut f32;
-        for i in 0..512 { *ptr_b.add(i) = 0.01; }
+        for i in 0..512 {
+            *ptr_b.add(i) = 0.01;
+        }
     }
 
     // Scale iterations to match target time. Each dispatch does 512×512 MACs.
@@ -88,7 +94,12 @@ fn main() {
     eprint!("Compiling ANE FFN kernel... ");
     let ffn_start = Instant::now();
     let mut g = Graph::new();
-    let h = g.placeholder(Shape { batch: 1, channels: DIM, height: 1, width: SEQ });
+    let h = g.placeholder(Shape {
+        batch: 1,
+        channels: DIM,
+        height: 1,
+        width: SEQ,
+    });
     let gate = g.inner_product(h, &vec![0.01; HIDDEN * DIM], DIM, HIDDEN);
     let up = g.inner_product(h, &vec![0.01; HIDDEN * DIM], DIM, HIDDEN);
     let gs = g.sigmoid(gate);
@@ -99,17 +110,33 @@ fn main() {
     let ane_exec = g.compile(NSQualityOfService::Default).expect("ANE compile");
     eprintln!("{:.0}ms", ffn_start.elapsed().as_secs_f64() * 1000.0);
 
-    let ane_input = TensorData::with_f32(&vec![0.01; DIM * SEQ],
-        Shape { batch: 1, channels: DIM, height: 1, width: SEQ });
-    let ane_output = TensorData::new(Shape { batch: 1, channels: DIM, height: 1, width: SEQ });
+    let ane_input = TensorData::with_f32(
+        &vec![0.01; DIM * SEQ],
+        Shape {
+            batch: 1,
+            channels: DIM,
+            height: 1,
+            width: SEQ,
+        },
+    );
+    let ane_output = TensorData::new(Shape {
+        batch: 1,
+        channels: DIM,
+        height: 1,
+        width: SEQ,
+    });
 
     // Calibrate GPU work to match ANE FFN time
     eprint!("Calibrating GPU work... ");
     // Measure ANE FFN time
-    for _ in 0..10 { let _ = ane_exec.run_cached_direct(&[&ane_input], &[&ane_output]); }
+    for _ in 0..10 {
+        let _ = ane_exec.run_cached_direct(&[&ane_input], &[&ane_output]);
+    }
     let ane_bench_start = Instant::now();
     let ane_iters = 100;
-    for _ in 0..ane_iters { let _ = ane_exec.run_cached_direct(&[&ane_input], &[&ane_output]); }
+    for _ in 0..ane_iters {
+        let _ = ane_exec.run_cached_direct(&[&ane_input], &[&ane_output]);
+    }
     let ane_ms = ane_bench_start.elapsed().as_secs_f64() * 1000.0 / ane_iters as f64;
     eprintln!("ANE FFN = {ane_ms:.2}ms/layer");
 
@@ -118,7 +145,9 @@ fn main() {
     gpu_work(&device, &queue, 1.0); // warmup
     let gpu_start = Instant::now();
     let gpu_iters = 50;
-    for _ in 0..gpu_iters { gpu_work(&device, &queue, ane_ms); }
+    for _ in 0..gpu_iters {
+        gpu_work(&device, &queue, ane_ms);
+    }
     let gpu_ms = gpu_start.elapsed().as_secs_f64() * 1000.0 / gpu_iters as f64;
     eprintln!("{gpu_ms:.2}ms/call\n");
 
@@ -185,7 +214,9 @@ fn main() {
     eprintln!("═══════════════════════════════════════════════════════════");
     eprintln!("  ANE only (sequential):     {ane_only_tok_s:5.1} tok/s");
     eprintln!("  GPU only (sequential):     {gpu_only_tok_s:5.1} tok/s");
-    eprintln!("  GPU + ANE pipeline:        {pipe_tok_s:5.1} tok/s  ({:+.0}% vs best single-chip)",
-        (pipe_tok_s / ane_only_tok_s.max(gpu_only_tok_s) - 1.0) * 100.0);
+    eprintln!(
+        "  GPU + ANE pipeline:        {pipe_tok_s:5.1} tok/s  ({:+.0}% vs best single-chip)",
+        (pipe_tok_s / ane_only_tok_s.max(gpu_only_tok_s) - 1.0) * 100.0
+    );
     eprintln!("═══════════════════════════════════════════════════════════");
 }

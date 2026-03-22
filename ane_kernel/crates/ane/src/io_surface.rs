@@ -1,8 +1,8 @@
 use std::ptr;
 
+use objc2::AnyThread;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2::AnyThread;
 use objc2_foundation::{NSDictionary, NSNumber, NSString};
 use objc2_io_surface::{
     IOSurface, IOSurfaceLockOptions, IOSurfacePropertyKeyBytesPerElement,
@@ -51,8 +51,7 @@ impl IOSurfaceExt for IOSurface {
                 ],
             )
         };
-        IOSurface::initWithProperties(IOSurface::alloc(), &dict)
-            .expect("IOSurface creation failed")
+        IOSurface::initWithProperties(IOSurface::alloc(), &dict).expect("IOSurface creation failed")
     }
 
     fn write_bytes(&self, data: &[u8]) {

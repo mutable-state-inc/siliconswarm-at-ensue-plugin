@@ -8,7 +8,10 @@ pub struct Convolution2dDescriptor {
 
 impl Default for Convolution2dDescriptor {
     fn default() -> Self {
-        Self { groups: 1, pad_mode: PadMode::Valid }
+        Self {
+            groups: 1,
+            pad_mode: PadMode::Valid,
+        }
     }
 }
 
@@ -22,6 +25,11 @@ pub struct ConvolutionTranspose2dDescriptor {
 
 impl Default for ConvolutionTranspose2dDescriptor {
     fn default() -> Self {
-        Self { groups: 1, stride_height: 1, stride_width: 1, pad_mode: PadMode::Valid }
+        Self {
+            groups: 1,
+            stride_height: 1,
+            stride_width: 1,
+            pad_mode: PadMode::Valid,
+        }
     }
 }

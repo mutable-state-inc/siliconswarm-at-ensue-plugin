@@ -3,12 +3,12 @@ use std::cell::UnsafeCell;
 use objc2::rc::Retained;
 use objc2_foundation::NSQualityOfService;
 
+use crate::Error;
 use crate::ane_client::ANEClient;
 use crate::ane_in_memory_model::ANEInMemoryModel;
 use crate::ane_performance_stats::ANEPerformanceStats;
 use crate::request::Request;
 use crate::tensor_data::TensorData;
-use crate::Error;
 
 /// A compiled, loaded ANE program ready for repeated evaluation.
 ///
@@ -34,15 +34,15 @@ impl Executable {
     /// `inputs` and `outputs` are positional [`TensorData`] arrays matching the
     /// order of [`placeholder`](crate::Graph::placeholder) calls and output tensors
     /// in the graph.
-    pub fn run(
-        &self,
-        inputs: &[&TensorData],
-        outputs: &[&TensorData],
-    ) -> Result<(), Error> {
-        let input_surfaces: Vec<&objc2_io_surface::IOSurface> =
-            inputs.iter().map(|tensor_data| tensor_data.surface()).collect();
-        let output_surfaces: Vec<&objc2_io_surface::IOSurface> =
-            outputs.iter().map(|tensor_data| tensor_data.surface()).collect();
+    pub fn run(&self, inputs: &[&TensorData], outputs: &[&TensorData]) -> Result<(), Error> {
+        let input_surfaces: Vec<&objc2_io_surface::IOSurface> = inputs
+            .iter()
+            .map(|tensor_data| tensor_data.surface())
+            .collect();
+        let output_surfaces: Vec<&objc2_io_surface::IOSurface> = outputs
+            .iter()
+            .map(|tensor_data| tensor_data.surface())
+            .collect();
         let request = Request::new(&input_surfaces, &output_surfaces)?;
         self.inner
             .evaluate(self.qos, &request.inner)
@@ -60,11 +60,7 @@ impl Executable {
     /// every call. The IOSurface backing buffers may be mutated between calls
     /// (that's the dynamic-weight pattern), but the TensorData/IOSurface
     /// objects themselves must be the same.
-    pub fn run_cached(
-        &self,
-        inputs: &[&TensorData],
-        outputs: &[&TensorData],
-    ) -> Result<(), Error> {
+    pub fn run_cached(&self, inputs: &[&TensorData], outputs: &[&TensorData]) -> Result<(), Error> {
         // SAFETY: Executable is not Sync for concurrent mutation — single-threaded
         // access to cached_request is guaranteed by the borrow of &self in the
         // training loop (one dispatch at a time).
@@ -102,8 +98,9 @@ impl Executable {
             self.inner.set_perf_stats_mask(0x1);
 
             // Create a blank stats object and attach it to the request
-            let stats = ANEPerformanceStats::new()
-                .ok_or(Error::Evaluate("failed to create ANEPerformanceStats".into()))?;
+            let stats = ANEPerformanceStats::new().ok_or(Error::Evaluate(
+                "failed to create ANEPerformanceStats".into(),
+            ))?;
             let input_surfaces: Vec<&objc2_io_surface::IOSurface> =
                 inputs.iter().map(|td| td.surface()).collect();
             let output_surfaces: Vec<&objc2_io_surface::IOSurface> =
@@ -142,8 +139,9 @@ impl Executable {
             *cached = Some(Request::new(&input_surfaces, &output_surfaces)?);
         }
         let request = cached.as_ref().unwrap();
-        let client = ANEClient::shared_connection()
-            .ok_or(Error::Evaluate("failed to get ANEClient shared connection".into()))?;
+        let client = ANEClient::shared_connection().ok_or(Error::Evaluate(
+            "failed to get ANEClient shared connection".into(),
+        ))?;
         client
             .evaluate_direct(&self.inner, &request.inner, self.qos.0 as u32)
             .map_err(|error| Error::Evaluate(error.localizedDescription().to_string()))

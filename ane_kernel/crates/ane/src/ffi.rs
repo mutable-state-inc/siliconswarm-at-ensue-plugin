@@ -1,7 +1,7 @@
-use std::sync::Mutex;
-use std::time::Instant;
 use crate::{Graph, Shape, TensorData};
 use objc2_foundation::NSQualityOfService;
+use std::sync::Mutex;
+use std::time::Instant;
 
 static DRAFT_MODEL: Mutex<Option<DraftModel>> = Mutex::new(None);
 
@@ -21,49 +21,122 @@ pub extern "C" fn ane_draft_init(dim: u32, hidden: u32, seq: u32, num_layers: u3
     let hidden = hidden as usize;
     let seq = seq as usize;
     let nl = num_layers as usize;
-    
+
     let wpl = 4 * dim + 3 * hidden;
     let sp = seq + nl * wpl;
-    
+
     if sp > 16384 {
         eprintln!("ane_draft_init: sp={sp} exceeds 16384 limit");
         return -1;
     }
-    
+
     let mut g = Graph::new();
-    let packed = g.placeholder(Shape { batch: 1, channels: dim, height: 1, width: sp });
+    let packed = g.placeholder(Shape {
+        batch: 1,
+        channels: dim,
+        height: 1,
+        width: sp,
+    });
     let mut h = g.slice(packed, [0, 0, 0, 0], [1, dim, 1, seq]);
     let mut wo = seq;
-    
+
     for _ in 0..nl {
-        let hr = g.reshape(h, Shape { batch: 1, channels: 1, height: dim, width: seq });
+        let hr = g.reshape(
+            h,
+            Shape {
+                batch: 1,
+                channels: 1,
+                height: dim,
+                width: seq,
+            },
+        );
         let ht = g.transpose(hr, [0, 1, 3, 2]);
-        let qw = g.slice(packed, [0, 0, 0, wo], [1, dim, 1, dim]); wo += dim * 4;
-        let qr = g.reshape(qw, Shape { batch: 1, channels: 1, height: dim, width: dim });
+        let qw = g.slice(packed, [0, 0, 0, wo], [1, dim, 1, dim]);
+        wo += dim * 4;
+        let qr = g.reshape(
+            qw,
+            Shape {
+                batch: 1,
+                channels: 1,
+                height: dim,
+                width: dim,
+            },
+        );
         let q = g.matrix_multiplication(ht, qr, false, false);
         let qt = g.transpose(q, [0, 1, 3, 2]);
-        let ao = g.reshape(qt, Shape { batch: 1, channels: dim, height: 1, width: seq });
+        let ao = g.reshape(
+            qt,
+            Shape {
+                batch: 1,
+                channels: dim,
+                height: 1,
+                width: seq,
+            },
+        );
         h = g.addition(h, ao);
-        
-        let hr2 = g.reshape(h, Shape { batch: 1, channels: 1, height: dim, width: seq });
+
+        let hr2 = g.reshape(
+            h,
+            Shape {
+                batch: 1,
+                channels: 1,
+                height: dim,
+                width: seq,
+            },
+        );
         let ht2 = g.transpose(hr2, [0, 1, 3, 2]);
-        let gw = g.slice(packed, [0, 0, 0, wo], [1, dim, 1, hidden]); wo += hidden;
-        let gr = g.reshape(gw, Shape { batch: 1, channels: 1, height: dim, width: hidden });
+        let gw = g.slice(packed, [0, 0, 0, wo], [1, dim, 1, hidden]);
+        wo += hidden;
+        let gr = g.reshape(
+            gw,
+            Shape {
+                batch: 1,
+                channels: 1,
+                height: dim,
+                width: hidden,
+            },
+        );
         let gate = g.matrix_multiplication(ht2, gr, false, false);
-        let uw = g.slice(packed, [0, 0, 0, wo], [1, dim, 1, hidden]); wo += hidden;
-        let ur = g.reshape(uw, Shape { batch: 1, channels: 1, height: dim, width: hidden });
+        let uw = g.slice(packed, [0, 0, 0, wo], [1, dim, 1, hidden]);
+        wo += hidden;
+        let ur = g.reshape(
+            uw,
+            Shape {
+                batch: 1,
+                channels: 1,
+                height: dim,
+                width: hidden,
+            },
+        );
         let up = g.matrix_multiplication(ht2, ur, false, false);
         let gs = g.sigmoid(gate);
         let gl = g.multiplication(gate, gs);
         let mix = g.multiplication(gl, up);
-        let dw = g.slice(packed, [0, 0, 0, wo], [1, dim, 1, dim]); wo += dim;
-        let dr = g.reshape(dw, Shape { batch: 1, channels: 1, height: hidden, width: dim });
+        let dw = g.slice(packed, [0, 0, 0, wo], [1, dim, 1, dim]);
+        wo += dim;
+        let dr = g.reshape(
+            dw,
+            Shape {
+                batch: 1,
+                channels: 1,
+                height: hidden,
+                width: dim,
+            },
+        );
         let f = g.matrix_multiplication(mix, dr, false, false);
         let ft = g.transpose(f, [0, 1, 3, 2]);
-        let fo = g.reshape(ft, Shape { batch: 1, channels: dim, height: 1, width: seq });
+        let fo = g.reshape(
+            ft,
+            Shape {
+                batch: 1,
+                channels: dim,
+                height: 1,
+                width: seq,
+            },
+        );
         h = g.addition(h, fo);
     }
-    
+
     let exec = match g.compile(NSQualityOfService::Default) {
         Ok(e) => e,
         Err(e) => {
@@ -71,17 +144,36 @@ pub extern "C" fn ane_draft_init(dim: u32, hidden: u32, seq: u32, num_layers: u3
             return -1;
         }
     };
-    
-    let input = TensorData::with_f32(&vec![0.01; dim * sp], 
-        Shape { batch: 1, channels: dim, height: 1, width: sp });
-    let output = TensorData::new(Shape { batch: 1, channels: dim, height: 1, width: seq });
-    
+
+    let input = TensorData::with_f32(
+        &vec![0.01; dim * sp],
+        Shape {
+            batch: 1,
+            channels: dim,
+            height: 1,
+            width: sp,
+        },
+    );
+    let output = TensorData::new(Shape {
+        batch: 1,
+        channels: dim,
+        height: 1,
+        width: seq,
+    });
+
     // Warmup
     for _ in 0..3 {
         let _ = exec.run_cached_direct(&[&input], &[&output]);
     }
-    
-    *DRAFT_MODEL.lock().unwrap() = Some(DraftModel { exec, input, output, dim, sp, seq });
+
+    *DRAFT_MODEL.lock().unwrap() = Some(DraftModel {
+        exec,
+        input,
+        output,
+        dim,
+        sp,
+        seq,
+    });
     0
 }
 
@@ -94,14 +186,17 @@ pub extern "C" fn ane_draft_run() -> i64 {
         None => return -1,
     };
     let start = Instant::now();
-    match model.exec.run_cached_direct(&[&model.input], &[&model.output]) {
+    match model
+        .exec
+        .run_cached_direct(&[&model.input], &[&model.output])
+    {
         Ok(()) => start.elapsed().as_micros() as i64,
         Err(_) => -1,
     }
 }
 
 /// Benchmark N runs, return average microseconds per run.
-#[unsafe(no_mangle)]  
+#[unsafe(no_mangle)]
 pub extern "C" fn ane_draft_bench(n: u32) -> i64 {
     let guard = DRAFT_MODEL.lock().unwrap();
     let model = match guard.as_ref() {
@@ -110,7 +205,9 @@ pub extern "C" fn ane_draft_bench(n: u32) -> i64 {
     };
     let start = Instant::now();
     for _ in 0..n {
-        let _ = model.exec.run_cached_direct(&[&model.input], &[&model.output]);
+        let _ = model
+            .exec
+            .run_cached_direct(&[&model.input], &[&model.output]);
     }
     (start.elapsed().as_micros() / n as u128) as i64
 }
@@ -140,12 +237,33 @@ pub extern "C" fn ane_elem_init(dim: u32, num_fused_layers: u32) -> i32 {
     let dim = dim as usize;
     let nl = num_fused_layers as usize;
     let seq = 64;
-    
+
     let mut g = Graph::new();
-    let mut h = g.placeholder(Shape { channels: dim, height: 1, width: seq, batch: 1 });
-    let neg_half = g.constant_with_scalar(-0.5, Shape { batch: 1, channels: 1, height: 1, width: 1 });
-    let eps = g.constant_with_scalar(1e-6, Shape { batch: 1, channels: 1, height: 1, width: 1 });
-    
+    let mut h = g.placeholder(Shape {
+        channels: dim,
+        height: 1,
+        width: seq,
+        batch: 1,
+    });
+    let neg_half = g.constant_with_scalar(
+        -0.5,
+        Shape {
+            batch: 1,
+            channels: 1,
+            height: 1,
+            width: 1,
+        },
+    );
+    let eps = g.constant_with_scalar(
+        1e-6,
+        Shape {
+            batch: 1,
+            channels: 1,
+            height: 1,
+            width: 1,
+        },
+    );
+
     for _ in 0..nl {
         let sq = g.multiplication(h, h);
         let m = g.reduce_mean(sq, 1);
@@ -162,7 +280,7 @@ pub extern "C" fn ane_elem_init(dim: u32, num_fused_layers: u32) -> i32 {
         let sl = g.multiplication(n2, sg);
         h = g.addition(h, sl);
     }
-    
+
     let exec = match g.compile(NSQualityOfService::Default) {
         Ok(e) => e,
         Err(e) => {
@@ -170,15 +288,33 @@ pub extern "C" fn ane_elem_init(dim: u32, num_fused_layers: u32) -> i32 {
             return -1;
         }
     };
-    
-    let input = TensorData::with_f32(&vec![0.01; dim * seq],
-        Shape { channels: dim, height: 1, width: seq, batch: 1 });
-    let output = TensorData::new(Shape { channels: dim, height: 1, width: seq, batch: 1 });
-    
+
+    let input = TensorData::with_f32(
+        &vec![0.01; dim * seq],
+        Shape {
+            channels: dim,
+            height: 1,
+            width: seq,
+            batch: 1,
+        },
+    );
+    let output = TensorData::new(Shape {
+        channels: dim,
+        height: 1,
+        width: seq,
+        batch: 1,
+    });
+
     // Warmup
-    for _ in 0..3 { let _ = exec.run_cached_direct(&[&input], &[&output]); }
-    
-    *ELEM_PIPELINE.lock().unwrap() = Some(ElemPipeline { exec, input, output });
+    for _ in 0..3 {
+        let _ = exec.run_cached_direct(&[&input], &[&output]);
+    }
+
+    *ELEM_PIPELINE.lock().unwrap() = Some(ElemPipeline {
+        exec,
+        input,
+        output,
+    });
     0
 }
 
@@ -206,7 +342,9 @@ pub extern "C" fn ane_elem_bench(n: u32) -> i64 {
         None => return -1,
     };
     let start = Instant::now();
-    for _ in 0..n { let _ = pipe.exec.run_cached_direct(&[&pipe.input], &[&pipe.output]); }
+    for _ in 0..n {
+        let _ = pipe.exec.run_cached_direct(&[&pipe.input], &[&pipe.output]);
+    }
     (start.elapsed().as_micros() / n as u128) as i64
 }
 
@@ -227,29 +365,57 @@ pub extern "C" fn ane_prefill_init(dim: u32, hidden: u32) -> i32 {
     let dim = dim as usize;
     let hidden = hidden as usize;
     let seq = 64usize;
-    
+
     let mut g = Graph::new();
-    let x = g.placeholder(Shape { batch: 1, channels: dim, height: 1, width: seq });
-    let q = g.inner_product(x, &vec![0.001; dim*dim], dim, dim);
-    let o = g.inner_product(q, &vec![0.001; dim*dim], dim, dim);
+    let x = g.placeholder(Shape {
+        batch: 1,
+        channels: dim,
+        height: 1,
+        width: seq,
+    });
+    let q = g.inner_product(x, &vec![0.001; dim * dim], dim, dim);
+    let o = g.inner_product(q, &vec![0.001; dim * dim], dim, dim);
     let h = g.addition(x, o);
-    let gate = g.inner_product(h, &vec![0.001; hidden*dim], dim, hidden);
-    let up = g.inner_product(h, &vec![0.001; hidden*dim], dim, hidden);
+    let gate = g.inner_product(h, &vec![0.001; hidden * dim], dim, hidden);
+    let up = g.inner_product(h, &vec![0.001; hidden * dim], dim, hidden);
     let gs = g.sigmoid(gate);
     let gl = g.multiplication(gate, gs);
     let mix = g.multiplication(gl, up);
-    let down = g.inner_product(mix, &vec![0.001; dim*hidden], hidden, dim);
+    let down = g.inner_product(mix, &vec![0.001; dim * hidden], hidden, dim);
     let _out = g.addition(h, down);
-    
+
     let exec = match g.compile(NSQualityOfService::Default) {
         Ok(e) => e,
-        Err(e) => { eprintln!("ane_prefill_init: {e}"); return -1; }
+        Err(e) => {
+            eprintln!("ane_prefill_init: {e}");
+            return -1;
+        }
     };
-    let input = TensorData::with_f32(&vec![0.01; dim*seq],
-        Shape { batch: 1, channels: dim, height: 1, width: seq });
-    let output = TensorData::new(Shape { batch: 1, channels: dim, height: 1, width: seq });
-    for _ in 0..3 { let _ = exec.run_cached_direct(&[&input], &[&output]); }
-    *PREFILL_MODEL.lock().unwrap() = Some(PrefillModel { exec, input, output, dim, seq });
+    let input = TensorData::with_f32(
+        &vec![0.01; dim * seq],
+        Shape {
+            batch: 1,
+            channels: dim,
+            height: 1,
+            width: seq,
+        },
+    );
+    let output = TensorData::new(Shape {
+        batch: 1,
+        channels: dim,
+        height: 1,
+        width: seq,
+    });
+    for _ in 0..3 {
+        let _ = exec.run_cached_direct(&[&input], &[&output]);
+    }
+    *PREFILL_MODEL.lock().unwrap() = Some(PrefillModel {
+        exec,
+        input,
+        output,
+        dim,
+        seq,
+    });
     0
 }
 
@@ -257,7 +423,10 @@ pub extern "C" fn ane_prefill_init(dim: u32, hidden: u32) -> i32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn ane_prefill_run() -> i64 {
     let guard = PREFILL_MODEL.lock().unwrap();
-    let m = match guard.as_ref() { Some(m) => m, None => return -1 };
+    let m = match guard.as_ref() {
+        Some(m) => m,
+        None => return -1,
+    };
     let start = Instant::now();
     let _ = m.exec.run_cached_direct(&[&m.input], &[&m.output]);
     start.elapsed().as_micros() as i64
@@ -267,9 +436,14 @@ pub extern "C" fn ane_prefill_run() -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn ane_prefill_bench(n: u32) -> i64 {
     let guard = PREFILL_MODEL.lock().unwrap();
-    let m = match guard.as_ref() { Some(m) => m, None => return -1 };
+    let m = match guard.as_ref() {
+        Some(m) => m,
+        None => return -1,
+    };
     let start = Instant::now();
-    for _ in 0..n { let _ = m.exec.run_cached_direct(&[&m.input], &[&m.output]); }
+    for _ in 0..n {
+        let _ = m.exec.run_cached_direct(&[&m.input], &[&m.output]);
+    }
     (start.elapsed().as_micros() / n as u128) as i64
 }
 
@@ -304,18 +478,28 @@ pub extern "C" fn ane_real_init(
     let seq = seq as usize;
     let expected = 3 * hidden * dim;
     if weights_ptr.is_null() || (weights_len as usize) < expected {
-        eprintln!("ane_real_init: weights_len={} expected={}", weights_len, expected);
+        eprintln!(
+            "ane_real_init: weights_len={} expected={}",
+            weights_len, expected
+        );
         return -1;
     }
     let weights = unsafe { std::slice::from_raw_parts(weights_ptr, expected) };
 
     let mut off = 0;
-    let gate_w = &weights[off..off + hidden * dim]; off += hidden * dim;
-    let up_w = &weights[off..off + hidden * dim]; off += hidden * dim;
+    let gate_w = &weights[off..off + hidden * dim];
+    off += hidden * dim;
+    let up_w = &weights[off..off + hidden * dim];
+    off += hidden * dim;
     let down_w = &weights[off..off + dim * hidden];
 
     let mut g = Graph::new();
-    let x = g.placeholder(Shape { batch: 1, channels: dim, height: 1, width: seq });
+    let x = g.placeholder(Shape {
+        batch: 1,
+        channels: dim,
+        height: 1,
+        width: seq,
+    });
     let gate = g.inner_product(x, gate_w, dim, hidden);
     let up = g.inner_product(x, up_w, dim, hidden);
     let gs = g.sigmoid(gate);
@@ -326,15 +510,36 @@ pub extern "C" fn ane_real_init(
 
     let exec = match g.compile(NSQualityOfService::Default) {
         Ok(e) => e,
-        Err(e) => { eprintln!("ane_real_init: {e}"); return -1; }
+        Err(e) => {
+            eprintln!("ane_real_init: {e}");
+            return -1;
+        }
     };
     let input = TensorData::with_f32(
         &vec![0.01; dim * seq],
-        Shape { batch: 1, channels: dim, height: 1, width: seq },
+        Shape {
+            batch: 1,
+            channels: dim,
+            height: 1,
+            width: seq,
+        },
     );
-    let output = TensorData::new(Shape { batch: 1, channels: dim, height: 1, width: seq });
-    for _ in 0..5 { let _ = exec.run_cached_direct(&[&input], &[&output]); }
-    *REAL_MODEL.lock().unwrap() = Some(RealModel { exec, input, output, dim, seq });
+    let output = TensorData::new(Shape {
+        batch: 1,
+        channels: dim,
+        height: 1,
+        width: seq,
+    });
+    for _ in 0..5 {
+        let _ = exec.run_cached_direct(&[&input], &[&output]);
+    }
+    *REAL_MODEL.lock().unwrap() = Some(RealModel {
+        exec,
+        input,
+        output,
+        dim,
+        seq,
+    });
     0
 }
 
@@ -342,7 +547,10 @@ pub extern "C" fn ane_real_init(
 #[unsafe(no_mangle)]
 pub extern "C" fn ane_real_run() -> i64 {
     let guard = REAL_MODEL.lock().unwrap();
-    let m = match guard.as_ref() { Some(m) => m, None => return -1 };
+    let m = match guard.as_ref() {
+        Some(m) => m,
+        None => return -1,
+    };
     let start = Instant::now();
     let _ = m.exec.run_cached_direct(&[&m.input], &[&m.output]);
     start.elapsed().as_micros() as i64
@@ -352,9 +560,14 @@ pub extern "C" fn ane_real_run() -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn ane_real_bench(n: u32) -> i64 {
     let guard = REAL_MODEL.lock().unwrap();
-    let m = match guard.as_ref() { Some(m) => m, None => return -1 };
+    let m = match guard.as_ref() {
+        Some(m) => m,
+        None => return -1,
+    };
     let start = Instant::now();
-    for _ in 0..n { let _ = m.exec.run_cached_direct(&[&m.input], &[&m.output]); }
+    for _ in 0..n {
+        let _ = m.exec.run_cached_direct(&[&m.input], &[&m.output]);
+    }
     (start.elapsed().as_micros() / n as u128) as i64
 }
 
@@ -369,7 +582,10 @@ pub unsafe extern "C" fn ane_real_forward(
     count: u32,
 ) -> i64 {
     let guard = REAL_MODEL.lock().unwrap();
-    let m = match guard.as_ref() { Some(m) => m, None => return -1 };
+    let m = match guard.as_ref() {
+        Some(m) => m,
+        None => return -1,
+    };
     let count = count as usize;
     if input_ptr.is_null() || output_ptr.is_null() || count != m.dim * m.seq {
         return -1;
@@ -497,14 +713,32 @@ pub extern "C" fn coreml_free() {
 #[unsafe(no_mangle)]
 pub extern "C" fn ane_ping() -> i64 {
     let mut g = Graph::new();
-    let x = g.placeholder(Shape { batch: 1, channels: 1, height: 1, width: 1 });
+    let x = g.placeholder(Shape {
+        batch: 1,
+        channels: 1,
+        height: 1,
+        width: 1,
+    });
     let _y = g.sigmoid(x);
     let exec = match g.compile(NSQualityOfService::Default) {
         Ok(e) => e,
         Err(_) => return -1,
     };
-    let input = TensorData::with_f32(&[0.5], Shape { batch: 1, channels: 1, height: 1, width: 1 });
-    let output = TensorData::new(Shape { batch: 1, channels: 1, height: 1, width: 1 });
+    let input = TensorData::with_f32(
+        &[0.5],
+        Shape {
+            batch: 1,
+            channels: 1,
+            height: 1,
+            width: 1,
+        },
+    );
+    let output = TensorData::new(Shape {
+        batch: 1,
+        channels: 1,
+        height: 1,
+        width: 1,
+    });
     let start = Instant::now();
     let _ = exec.run_cached_direct(&[&input], &[&output]);
     start.elapsed().as_micros() as i64
@@ -532,7 +766,12 @@ pub extern "C" fn ane_keepalive_init() -> i32 {
     let seq = 64usize;
 
     let mut g = Graph::new();
-    let x = g.placeholder(Shape { batch: 1, channels: dim, height: 1, width: seq });
+    let x = g.placeholder(Shape {
+        batch: 1,
+        channels: dim,
+        height: 1,
+        width: seq,
+    });
     // Two inner_products: dim->hidden->dim. Total weights: 512*1024*2 + 1024*512*2 = 2MB fp16.
     // Easily fits in ANE SRAM (~32MB), so runs at 15000+ GB/s.
     let up = g.inner_product(x, &vec![0.01f32; hidden * dim], dim, hidden);
@@ -551,16 +790,30 @@ pub extern "C" fn ane_keepalive_init() -> i32 {
 
     let input = TensorData::with_f32(
         &vec![0.01; dim * seq],
-        Shape { batch: 1, channels: dim, height: 1, width: seq },
+        Shape {
+            batch: 1,
+            channels: dim,
+            height: 1,
+            width: seq,
+        },
     );
-    let output = TensorData::new(Shape { batch: 1, channels: dim, height: 1, width: seq });
+    let output = TensorData::new(Shape {
+        batch: 1,
+        channels: dim,
+        height: 1,
+        width: seq,
+    });
 
     // Warmup to ensure model is loaded into ANE SRAM
     for _ in 0..5 {
         let _ = exec.run_cached_direct(&[&input], &[&output]);
     }
 
-    *KEEPALIVE.lock().unwrap() = Some(KeepaliveModel { exec, input, output });
+    *KEEPALIVE.lock().unwrap() = Some(KeepaliveModel {
+        exec,
+        input,
+        output,
+    });
     0
 }
 

@@ -6,7 +6,7 @@ authors.workspace = true
 license.workspace = true
 description = "Rust bindings for the Apple Neural Engine (ANE) via the private AppleNeuralEngine.framework"
 repository = "https://github.com/computer-graphics-tools/ane"
-readme = "../../README.md"
+readme = "../../CLAUDE.md"
 keywords = ["apple", "neural-engine", "ane", "machine-learning"]
 categories = ["api-bindings", "hardware-support"]
 build = "build.rs"
@@ -19,8 +19,20 @@ name = "bench"
 path = "examples/bench.rs"
 
 [[example]]
-name = "gpt2_forward"
-path = "examples/gpt2_forward/main.rs"
+name = "gpt2_ane"
+path = "examples/gpt2_ane.rs"
+
+[[example]]
+name = "phi_ane"
+path = "examples/phi_ane.rs"
+
+[[example]]
+name = "smollm_ane"
+path = "examples/smollm_ane.rs"
+
+[[example]]
+name = "phi_gpu"
+path = "examples/phi_gpu.rs"
 
 [dependencies]
 thiserror.workspace = true

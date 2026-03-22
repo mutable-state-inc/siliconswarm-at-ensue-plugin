@@ -4,7 +4,7 @@
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject};
 use objc2::{class, msg_send};
-use objc2_foundation::{NSError, NSString, NSURL, NSDictionary, NSArray};
+use objc2_foundation::{NSArray, NSDictionary, NSError, NSString, NSURL};
 use std::sync::Once;
 use std::time::Instant;
 
@@ -15,7 +15,7 @@ fn ensure_coreml_loaded() {
         unsafe {
             // Load CoreML.framework dynamically
             let path = std::ffi::CStr::from_bytes_with_nul_unchecked(
-                b"/System/Library/Frameworks/CoreML.framework/CoreML\0"
+                b"/System/Library/Frameworks/CoreML.framework/CoreML\0",
             );
             libc::dlopen(path.as_ptr(), libc::RTLD_NOW | libc::RTLD_GLOBAL);
         }
@@ -33,8 +33,8 @@ impl CoreMLModel {
     /// Load a CoreML model from a .mlpackage or .mlmodelc directory.
     pub fn load(path: &str) -> Result<Self, String> {
         ensure_coreml_loaded();
-        let abs_path = std::fs::canonicalize(path)
-            .map_err(|e| format!("canonicalize {path}: {e}"))?;
+        let abs_path =
+            std::fs::canonicalize(path).map_err(|e| format!("canonicalize {path}: {e}"))?;
         let path_str = abs_path.to_str().ok_or("invalid path")?;
 
         unsafe {
@@ -50,8 +50,7 @@ impl CoreMLModel {
             let _: () = msg_send![&*config, setComputeUnits: 2i64];
 
             // Load model
-            let model_cls = AnyClass::get(c"MLModel")
-                .ok_or("MLModel class not found")?;
+            let model_cls = AnyClass::get(c"MLModel").ok_or("MLModel class not found")?;
             let mut error: *mut NSError = std::ptr::null_mut();
             let model: *mut AnyObject = msg_send![
                 model_cls,
@@ -85,13 +84,9 @@ impl CoreMLModel {
         unsafe {
             // Create MLMultiArray
             let shape_ns = shape_to_nsarray(shape);
-            let multi_cls = AnyClass::get(c"MLMultiArray")
-                .ok_or("MLMultiArray class not found")?;
+            let multi_cls = AnyClass::get(c"MLMultiArray").ok_or("MLMultiArray class not found")?;
             let mut error: *mut NSError = std::ptr::null_mut();
-            let multi_array: *mut AnyObject = msg_send![
-                multi_cls,
-                alloc
-            ];
+            let multi_array: *mut AnyObject = msg_send![multi_cls, alloc];
             let multi_array: Retained<AnyObject> = {
                 // dataType 65600 = Float32
                 let obj: *mut AnyObject = msg_send![
@@ -114,8 +109,8 @@ impl CoreMLModel {
 
             // Create feature provider dictionary
             let key = NSString::from_str(input_name);
-            let value_cls = AnyClass::get(c"MLFeatureValue")
-                .ok_or("MLFeatureValue class not found")?;
+            let value_cls =
+                AnyClass::get(c"MLFeatureValue").ok_or("MLFeatureValue class not found")?;
             let feature_value: Retained<AnyObject> = msg_send![
                 value_cls,
                 featureValueWithMultiArray: &*multi_array
@@ -136,10 +131,7 @@ impl CoreMLModel {
             ];
 
             let mut prov_error: *mut NSError = std::ptr::null_mut();
-            let provider: *mut AnyObject = msg_send![
-                provider_cls,
-                alloc
-            ];
+            let provider: *mut AnyObject = msg_send![provider_cls, alloc];
             let provider: Retained<AnyObject> = {
                 let obj: *mut AnyObject = msg_send![
                     provider,
@@ -187,13 +179,16 @@ impl CoreMLModel {
 
 fn shape_to_nsarray(shape: &[usize]) -> Retained<NSArray<AnyObject>> {
     unsafe {
-        let ns_numbers: Vec<Retained<AnyObject>> = shape.iter().map(|&dim| {
-            let num: Retained<AnyObject> = msg_send![
-                class!(NSNumber),
-                numberWithInteger: dim as i64
-            ];
-            num
-        }).collect();
+        let ns_numbers: Vec<Retained<AnyObject>> = shape
+            .iter()
+            .map(|&dim| {
+                let num: Retained<AnyObject> = msg_send![
+                    class!(NSNumber),
+                    numberWithInteger: dim as i64
+                ];
+                num
+            })
+            .collect();
         let refs: Vec<&AnyObject> = ns_numbers.iter().map(|r| &**r).collect();
         NSArray::from_slice(&refs)
     }

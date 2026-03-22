@@ -3,10 +3,10 @@ use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_io_surface::IOSurface;
 
+use crate::Error;
 use crate::ane_io_surface_object::ANEIOSurfaceObject;
 use crate::ane_performance_stats::ANEPerformanceStats;
 use crate::ane_request::ANERequest;
-use crate::Error;
 
 /// A set of IOSurface buffers bound to a compiled model for a single evaluation.
 ///
@@ -37,8 +37,10 @@ impl Request {
             .collect::<Option<Vec<_>>>()
             .ok_or(Error::SurfaceWrap)?;
 
-        let input_refs: Vec<&ANEIOSurfaceObject> = input_objs.iter().map(|object| &**object).collect();
-        let output_refs: Vec<&ANEIOSurfaceObject> = output_objs.iter().map(|object| &**object).collect();
+        let input_refs: Vec<&ANEIOSurfaceObject> =
+            input_objs.iter().map(|object| &**object).collect();
+        let output_refs: Vec<&ANEIOSurfaceObject> =
+            output_objs.iter().map(|object| &**object).collect();
 
         let inner = ANERequest::with_multiple_io(&input_refs, &output_refs)
             .ok_or(Error::RequestCreation)?;

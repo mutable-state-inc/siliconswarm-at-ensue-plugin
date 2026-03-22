@@ -20,7 +20,7 @@ impl WeightBlob {
         let mut bytes = vec![0u8; values.len() * 2];
         for (index, &value) in values.iter().enumerate() {
             let f16 = f32_to_f16(value);
-            bytes[index * 2]     = (f16 & 0xFF) as u8;
+            bytes[index * 2] = (f16 & 0xFF) as u8;
             bytes[index * 2 + 1] = (f16 >> 8) as u8;
         }
         Self {
@@ -61,7 +61,7 @@ pub(crate) fn build_mil_weight_blob(blobs: &[&WeightBlob]) -> Box<[u8]> {
         let fp16_size = blob.fp16_byte_count();
         let data_offset = cursor + 64;
 
-        out[cursor]     = 0xEF;
+        out[cursor] = 0xEF;
         out[cursor + 1] = 0xBE;
         out[cursor + 2] = 0xAD;
         out[cursor + 3] = 0xDE;
@@ -91,7 +91,10 @@ pub(crate) fn mil_blob_chunk_offset(blobs: &[&WeightBlob], index: usize) -> u64 
 }
 
 pub(crate) fn mil_blob_total_size(blobs: &[&WeightBlob]) -> usize {
-    64 + blobs.iter().map(|blob| 64 + blob.fp16_byte_count()).sum::<usize>()
+    64 + blobs
+        .iter()
+        .map(|blob| 64 + blob.fp16_byte_count())
+        .sum::<usize>()
 }
 
 pub(crate) fn f32_to_f16(value: f32) -> u16 {

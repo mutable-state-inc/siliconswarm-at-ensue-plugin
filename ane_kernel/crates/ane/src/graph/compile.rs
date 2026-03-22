@@ -5,8 +5,8 @@ use objc2_foundation::NSQualityOfService;
 use crate::ops::weights::WeightBlob;
 use crate::{ConstantOp, Op, Shape};
 
-use super::tensor::Tensor;
 use super::Graph;
+use super::tensor::Tensor;
 
 /// Minimum spatial width (the W dimension in NCHW) that the ANE hardware
 /// can execute.  Programs compiled with smaller widths succeed at the MIL

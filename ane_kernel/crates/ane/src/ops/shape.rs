@@ -8,11 +8,21 @@ pub struct Shape {
 
 impl Shape {
     pub fn channels(channels: usize) -> Self {
-        Self { channels, width: 1, height: 1, batch: 1 }
+        Self {
+            channels,
+            width: 1,
+            height: 1,
+            batch: 1,
+        }
     }
 
     pub fn spatial(channels: usize, height: usize, width: usize) -> Self {
-        Self { channels, width, height, batch: 1 }
+        Self {
+            channels,
+            width,
+            height,
+            batch: 1,
+        }
     }
 
     pub fn total_elements(&self) -> usize {

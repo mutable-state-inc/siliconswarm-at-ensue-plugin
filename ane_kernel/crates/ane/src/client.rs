@@ -1,18 +1,18 @@
 use std::ffi::CString;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Once;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_foundation::{NSData, NSDictionary, NSNumber, NSQualityOfService, NSString};
 use objc2_io_surface::IOSurface;
 
+use crate::Error;
 use crate::ane_in_memory_model::ANEInMemoryModel;
 use crate::ane_in_memory_model_descriptor::ANEInMemoryModelDescriptor;
 use crate::executable::Executable;
 use crate::graph::Graph;
 use crate::io_surface::IOSurfaceExt;
-use crate::Error;
 
 static FRAMEWORK_INIT: Once = Once::new();
 static FRAMEWORK_OK: AtomicBool = AtomicBool::new(false);
@@ -40,11 +40,7 @@ pub fn nsdata_on_surface(data: &[u8]) -> (Retained<NSData>, Retained<IOSurface>)
     let surface = IOSurface::with_byte_count(data.len());
     surface.write_bytes(data);
     let nsdata = unsafe {
-        NSData::dataWithBytesNoCopy_length_freeWhenDone(
-            surface.baseAddress(),
-            data.len(),
-            false,
-        )
+        NSData::dataWithBytesNoCopy_length_freeWhenDone(surface.baseAddress(), data.len(), false)
     };
     (nsdata, surface)
 }
@@ -69,10 +65,7 @@ pub fn compile_network(
         _weight_surface = Some(weight_surface);
         let offset = NSNumber::new_u64(0);
         let entry: Retained<NSDictionary<NSString, AnyObject>> = NSDictionary::from_slices(
-            &[
-                &*NSString::from_str("offset"),
-                &*NSString::from_str("data"),
-            ],
+            &[&*NSString::from_str("offset"), &*NSString::from_str("data")],
             &[
                 offset.as_ref() as &AnyObject,
                 weight_data.as_ref() as &AnyObject,

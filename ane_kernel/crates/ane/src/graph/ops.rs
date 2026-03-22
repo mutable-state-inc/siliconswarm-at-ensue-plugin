@@ -1,11 +1,9 @@
-use crate::{
-    ActivationOp, ActivationMode, ConcatOp, ConvOp, DeconvOp,
-    ElementwiseOp, ElementwiseOpType, FlattenOp, InstanceNormOp,
-    MatmulOp, Op, PadFillMode, PadMode, PaddingOp, PoolType, PoolingOp,
-    ReductionOp, ReductionMode, ReshapeOp, Shape,
-    SliceBySizeOp, SoftmaxOp, TransposeOp,
-};
 use crate::ops::weights::WeightBlob;
+use crate::{
+    ActivationMode, ActivationOp, ConcatOp, ConvOp, DeconvOp, ElementwiseOp, ElementwiseOpType,
+    FlattenOp, InstanceNormOp, MatmulOp, Op, PadFillMode, PadMode, PaddingOp, PoolType, PoolingOp,
+    ReductionMode, ReductionOp, ReshapeOp, Shape, SliceBySizeOp, SoftmaxOp, TransposeOp,
+};
 
 use super::descriptor::{Convolution2dDescriptor, ConvolutionTranspose2dDescriptor};
 use super::tensor::Tensor;
@@ -22,7 +20,8 @@ impl Graph {
     /// Create a constant tensor from f32 data (converted to fp16 internally).
     pub fn constant(&mut self, data: &[f32], shape: Shape) -> Tensor {
         let tensor = self.alloc(shape);
-        self.constants.insert(tensor.id, (WeightBlob::from_f32(data).data, shape));
+        self.constants
+            .insert(tensor.id, (WeightBlob::from_f32(data).data, shape));
         tensor
     }
 
@@ -41,7 +40,10 @@ impl Graph {
     }
 
     pub(crate) fn resolve_constant(&self, tensor: Tensor) -> WeightBlob {
-        let (bytes, _) = self.constants.get(&tensor.id).expect("tensor is not a constant");
+        let (bytes, _) = self
+            .constants
+            .get(&tensor.id)
+            .expect("tensor is not a constant");
         WeightBlob::from_f16_bytes(bytes.clone())
     }
 
@@ -64,11 +66,7 @@ impl Graph {
     /// `weights`: dynamic weight tensor [OC, IC, 1, 1]
     ///   (weights.shape.batch = OC, weights.shape.channels = IC)
     /// Output: [1, OC, 1, SEQ]
-    pub fn convolution_2d_1x1_dynamic(
-        &mut self,
-        source: Tensor,
-        weights: Tensor,
-    ) -> Tensor {
+    pub fn convolution_2d_1x1_dynamic(&mut self, source: Tensor, weights: Tensor) -> Tensor {
         let out_channels = weights.shape.batch;
         let output = self.alloc(Shape {
             batch: 1,
@@ -108,7 +106,12 @@ impl Graph {
             PadMode::Valid => source.shape.width.saturating_sub(kernel_w) + 1,
             PadMode::Same => source.shape.width,
         };
-        let output = self.alloc(Shape { channels: out_channels, height: out_h, width: out_w, batch: 1 });
+        let output = self.alloc(Shape {
+            channels: out_channels,
+            height: out_h,
+            width: out_w,
+            batch: 1,
+        });
         self.ops.push(GraphOp {
             op: Op::Conv(ConvOp {
                 name: Self::op_name(output),
@@ -146,7 +149,12 @@ impl Graph {
         let kernel_w = weights.shape.width;
         let out_h = source.shape.height * descriptor.stride_height;
         let out_w = source.shape.width * descriptor.stride_width;
-        let output = self.alloc(Shape { channels: out_channels, height: out_h, width: out_w, batch: 1 });
+        let output = self.alloc(Shape {
+            channels: out_channels,
+            height: out_h,
+            width: out_w,
+            batch: 1,
+        });
         self.ops.push(GraphOp {
             op: Op::Deconv(DeconvOp {
                 name: Self::op_name(output),
@@ -175,7 +183,6 @@ impl Graph {
         });
         output
     }
-
 
     fn activation(&mut self, input: Tensor, mode: ActivationMode) -> Tensor {
         let output = self.alloc(input.shape);
@@ -227,7 +234,6 @@ impl Graph {
         self.activation(input, ActivationMode::SoftSign)
     }
 
-
     fn elementwise_binary(
         &mut self,
         left_hand_side: Tensor,
@@ -236,8 +242,14 @@ impl Graph {
     ) -> Tensor {
         let output = self.alloc(Shape {
             batch: left_hand_side.shape.batch.max(right_hand_side.shape.batch),
-            channels: left_hand_side.shape.channels.max(right_hand_side.shape.channels),
-            height: left_hand_side.shape.height.max(right_hand_side.shape.height),
+            channels: left_hand_side
+                .shape
+                .channels
+                .max(right_hand_side.shape.channels),
+            height: left_hand_side
+                .shape
+                .height
+                .max(right_hand_side.shape.height),
             width: left_hand_side.shape.width.max(right_hand_side.shape.width),
         });
         let left_hand_side_name = Self::tensor_name(left_hand_side);
@@ -326,7 +338,6 @@ impl Graph {
         self.elementwise_unary(input, ElementwiseOpType::Inverse)
     }
 
-
     /// Softmax along the specified axis.
     pub fn soft_max(&mut self, input: Tensor, axis: i64) -> Tensor {
         let output = self.alloc(input.shape);
@@ -346,10 +357,18 @@ impl Graph {
     pub fn concat(&mut self, inputs: &[Tensor], axis: usize) -> Tensor {
         assert!(!inputs.is_empty(), "concat requires at least one input");
         let base = inputs[0].shape;
-        let sum_dim: usize = inputs.iter().map(|t| {
-            let dims = [t.shape.batch, t.shape.channels, t.shape.height, t.shape.width];
-            dims[axis]
-        }).sum();
+        let sum_dim: usize = inputs
+            .iter()
+            .map(|t| {
+                let dims = [
+                    t.shape.batch,
+                    t.shape.channels,
+                    t.shape.height,
+                    t.shape.width,
+                ];
+                dims[axis]
+            })
+            .sum();
         let mut out_dims = [base.batch, base.channels, base.height, base.width];
         out_dims[axis] = sum_dim;
         let output = self.alloc(Shape {
@@ -371,7 +390,6 @@ impl Graph {
         output
     }
 
-
     /// Matrix multiplication: `out = x @ y` (with optional transposes on last two dims).
     pub fn matrix_multiplication(
         &mut self,
@@ -380,8 +398,16 @@ impl Graph {
         transpose_x: bool,
         transpose_y: bool,
     ) -> Tensor {
-        let out_h = if transpose_x { left_hand_side.shape.width } else { left_hand_side.shape.height };
-        let out_w = if transpose_y { right_hand_side.shape.height } else { right_hand_side.shape.width };
+        let out_h = if transpose_x {
+            left_hand_side.shape.width
+        } else {
+            left_hand_side.shape.height
+        };
+        let out_w = if transpose_y {
+            right_hand_side.shape.height
+        } else {
+            right_hand_side.shape.width
+        };
         let output = self.alloc(Shape {
             batch: left_hand_side.shape.batch,
             channels: left_hand_side.shape.channels,
@@ -402,10 +428,14 @@ impl Graph {
         output
     }
 
-
     /// Permute the dimensions of `x` according to `perm` (4-element NCHW permutation).
     pub fn transpose(&mut self, input: Tensor, perm: [usize; 4]) -> Tensor {
-        let dimensions = [input.shape.batch, input.shape.channels, input.shape.height, input.shape.width];
+        let dimensions = [
+            input.shape.batch,
+            input.shape.channels,
+            input.shape.height,
+            input.shape.width,
+        ];
         let output = self.alloc(Shape {
             batch: dimensions[perm[0]],
             channels: dimensions[perm[1]],
@@ -423,7 +453,6 @@ impl Graph {
         });
         output
     }
-
 
     /// Extract a sub-tensor starting at `begin` with dimensions `size` (both in NCHW order).
     pub fn slice(&mut self, input: Tensor, begin: [usize; 4], size: [usize; 4]) -> Tensor {
@@ -445,7 +474,6 @@ impl Graph {
         });
         output
     }
-
 
     pub fn reshape(&mut self, input: Tensor, target: Shape) -> Tensor {
         let output = self.alloc(target);
@@ -476,7 +504,6 @@ impl Graph {
         output
     }
 
-
     fn pool(
         &mut self,
         input: Tensor,
@@ -502,7 +529,12 @@ impl Graph {
                 ),
             }
         };
-        let output = self.alloc(Shape { channels: input.shape.channels, height: out_h, width: out_w, batch: 1 });
+        let output = self.alloc(Shape {
+            channels: input.shape.channels,
+            height: out_h,
+            width: out_w,
+            batch: 1,
+        });
         self.ops.push(GraphOp {
             op: Op::Pooling(PoolingOp {
                 name: Self::op_name(output),
@@ -534,7 +566,16 @@ impl Graph {
         stride_width: usize,
         pad_mode: PadMode,
     ) -> Tensor {
-        self.pool(input, PoolType::Max, kernel_h, kernel_w, stride_height, stride_width, pad_mode, false)
+        self.pool(
+            input,
+            PoolType::Max,
+            kernel_h,
+            kernel_w,
+            stride_height,
+            stride_width,
+            pad_mode,
+            false,
+        )
     }
 
     pub fn avg_pool(
@@ -546,7 +587,16 @@ impl Graph {
         stride_width: usize,
         pad_mode: PadMode,
     ) -> Tensor {
-        self.pool(input, PoolType::Average, kernel_h, kernel_w, stride_height, stride_width, pad_mode, false)
+        self.pool(
+            input,
+            PoolType::Average,
+            kernel_h,
+            kernel_w,
+            stride_height,
+            stride_width,
+            pad_mode,
+            false,
+        )
     }
 
     pub fn global_avg_pool(&mut self, input: Tensor) -> Tensor {
@@ -554,7 +604,6 @@ impl Graph {
         let kw = input.shape.width;
         self.pool(input, PoolType::Average, kh, kw, 1, 1, PadMode::Valid, true)
     }
-
 
     pub fn pad(
         &mut self,
@@ -588,7 +637,6 @@ impl Graph {
         });
         output
     }
-
 
     fn reduce(&mut self, input: Tensor, mode: ReductionMode, axis: i64) -> Tensor {
         let mut out_shape = input.shape;
@@ -629,13 +677,7 @@ impl Graph {
         self.reduce(input, ReductionMode::Max, axis)
     }
 
-
-    pub fn instance_norm(
-        &mut self,
-        source: Tensor,
-        params: Tensor,
-        epsilon: f64,
-    ) -> Tensor {
+    pub fn instance_norm(&mut self, source: Tensor, params: Tensor, epsilon: f64) -> Tensor {
         let output = self.alloc(source.shape);
         self.ops.push(GraphOp {
             op: Op::InstanceNorm(InstanceNormOp {

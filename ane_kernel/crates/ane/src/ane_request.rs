@@ -1,6 +1,6 @@
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject};
-use objc2::{extern_class, extern_conformance, msg_send, ClassType, Message};
+use objc2::{ClassType, Message, extern_class, extern_conformance, msg_send};
 use objc2_foundation::{NSArray, NSNumber, NSObjectProtocol};
 
 use crate::ane_io_surface_object::ANEIOSurfaceObject;

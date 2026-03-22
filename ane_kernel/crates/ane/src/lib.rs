@@ -18,7 +18,14 @@
 //! executable.run(&[&input], &[&output])?;
 //! ```
 
-#![allow(dead_code, deprecated, private_interfaces, clippy::too_many_arguments)]
+#![allow(
+    dead_code,
+    deprecated,
+    private_interfaces,
+    clippy::too_many_arguments,
+    clippy::not_unsafe_ptr_arg_deref,
+    clippy::missing_safety_doc
+)]
 
 mod ane_client;
 pub mod ane_in_memory_model;
@@ -28,25 +35,26 @@ mod ane_performance_stats;
 mod ane_request;
 pub mod client;
 mod error;
+mod executable;
 pub mod graph;
 pub mod io_surface;
-mod executable;
+pub mod neon_convert;
 pub mod ops;
 pub(crate) mod request;
-pub mod neon_convert;
 mod tensor_data;
 
 pub use error::Error;
-pub use graph::{Convolution2dDescriptor, ConvolutionTranspose2dDescriptor, Graph, Tensor, MIN_SPATIAL_WIDTH};
-pub use io_surface::IOSurfaceExt;
 pub use executable::Executable;
+pub use graph::{
+    Convolution2dDescriptor, ConvolutionTranspose2dDescriptor, Graph, MIN_SPATIAL_WIDTH, Tensor,
+};
+pub use io_surface::IOSurfaceExt;
 pub use objc2_foundation::NSQualityOfService;
 pub use ops::{
-    ActivationOp, ActivationMode, ConcatOp, ConstantOp, ConvOp, DeconvOp,
-    ElementwiseOp, ElementwiseOpType, FlattenOp, InnerProductOp, InstanceNormOp,
-    Op, MatmulOp, PadFillMode, PadMode, PaddingOp, PoolType, PoolingOp, ReductionOp,
-    ReductionMode, ReshapeOp, ScalarOp, ScalarOpType, Shape, SliceBySizeOp,
-    SoftmaxOp, TransposeOp,
+    ActivationMode, ActivationOp, ConcatOp, ConstantOp, ConvOp, DeconvOp, ElementwiseOp,
+    ElementwiseOpType, FlattenOp, InnerProductOp, InstanceNormOp, MatmulOp, Op, PadFillMode,
+    PadMode, PaddingOp, PoolType, PoolingOp, ReductionMode, ReductionOp, ReshapeOp, ScalarOp,
+    ScalarOpType, Shape, SliceBySizeOp, SoftmaxOp, TransposeOp,
 };
 pub use tensor_data::{LockedSlice, LockedSliceMut, TensorData};
 

@@ -4,8 +4,8 @@ use std::ptr;
 use objc2::rc::Retained;
 use objc2_io_surface::{IOSurface, IOSurfaceLockOptions};
 
-use crate::io_surface::IOSurfaceExt;
 use crate::Shape;
+use crate::io_surface::IOSurfaceExt;
 
 /// IOSurface-backed tensor storage for ANE I/O.
 ///
@@ -29,7 +29,7 @@ impl TensorData {
     /// Allocate an empty IOSurface sized for the given shape (fp16 = 2 bytes/element).
     pub fn new(shape: Shape) -> Self {
         let elements = shape.total_elements();
-        let byte_count = elements * 2;  // fp16 = 2 bytes
+        let byte_count = elements * 2; // fp16 = 2 bytes
         let surface = IOSurface::with_byte_count(byte_count);
         Self {
             surface,
@@ -58,13 +58,15 @@ impl TensorData {
     /// Write fp32 data into the surface (converts to fp16 via NEON SIMD).
     pub fn copy_from_f32(&self, data: &[f32]) {
         unsafe {
-            self.surface.lockWithOptions_seed(IOSurfaceLockOptions(0), ptr::null_mut());
+            self.surface
+                .lockWithOptions_seed(IOSurfaceLockOptions(0), ptr::null_mut());
             let dst = std::slice::from_raw_parts_mut(
                 self.surface.baseAddress().as_ptr().cast::<u16>(),
                 data.len(),
             );
             crate::neon_convert::f32_to_f16_bulk(data, dst);
-            self.surface.unlockWithOptions_seed(IOSurfaceLockOptions(0), ptr::null_mut());
+            self.surface
+                .unlockWithOptions_seed(IOSurfaceLockOptions(0), ptr::null_mut());
         }
     }
 
@@ -74,7 +76,8 @@ impl TensorData {
     /// do NOT propagate back to the IOSurface. Use `as_f32_slice_mut` for writes.
     pub fn as_f32_slice(&self) -> LockedSlice<'_> {
         let element_count = self.shape.total_elements();
-        self.surface.lockWithOptions_seed(IOSurfaceLockOptions::ReadOnly, ptr::null_mut());
+        self.surface
+            .lockWithOptions_seed(IOSurfaceLockOptions::ReadOnly, ptr::null_mut());
         // Convert fp16 → f32 into scratch buffer via NEON SIMD
         let buf = unsafe { &mut *self.f32_buf.get() };
         unsafe {
@@ -96,7 +99,8 @@ impl TensorData {
     /// when the guard is dropped.
     pub fn as_f32_slice_mut(&self) -> LockedSliceMut<'_> {
         let element_count = self.shape.total_elements();
-        self.surface.lockWithOptions_seed(IOSurfaceLockOptions(0), ptr::null_mut());
+        self.surface
+            .lockWithOptions_seed(IOSurfaceLockOptions(0), ptr::null_mut());
         let buf = unsafe { &mut *self.f32_buf.get() };
         // NOTE: we do NOT read current surface data into the buffer.
         // The caller must write ALL needed data before the guard is dropped.
@@ -113,6 +117,33 @@ impl TensorData {
     pub fn read_f32(&self) -> Box<[f32]> {
         let slice = self.as_f32_slice();
         slice.to_vec().into_boxed_slice()
+    }
+
+    /// Write a single f32 value at a specific flat index (converts to fp16).
+    /// Caller must lock/unlock around batches of writes using `lock`/`unlock`.
+    pub fn write_f32_at(&self, index: usize, value: f32) {
+        unsafe {
+            self.surface
+                .lockWithOptions_seed(IOSurfaceLockOptions(0), ptr::null_mut());
+            let ptr = self.surface.baseAddress().as_ptr().cast::<u16>();
+            *ptr.add(index) = crate::ops::weights::f32_to_f16(value);
+            self.surface
+                .unlockWithOptions_seed(IOSurfaceLockOptions(0), ptr::null_mut());
+        }
+    }
+
+    /// Write multiple f32 values at specific flat indices (batch, one lock).
+    pub fn write_f32_sparse(&self, indices: &[usize], values: &[f32]) {
+        unsafe {
+            self.surface
+                .lockWithOptions_seed(IOSurfaceLockOptions(0), ptr::null_mut());
+            let ptr = self.surface.baseAddress().as_ptr().cast::<u16>();
+            for (&idx, &val) in indices.iter().zip(values.iter()) {
+                *ptr.add(idx) = crate::ops::weights::f32_to_f16(val);
+            }
+            self.surface
+                .unlockWithOptions_seed(IOSurfaceLockOptions(0), ptr::null_mut());
+        }
     }
 
     pub fn shape(&self) -> Shape {
@@ -140,7 +171,8 @@ impl Deref for LockedSlice<'_> {
 
 impl Drop for LockedSlice<'_> {
     fn drop(&mut self) {
-        self.surface.unlockWithOptions_seed(IOSurfaceLockOptions::ReadOnly, ptr::null_mut());
+        self.surface
+            .unlockWithOptions_seed(IOSurfaceLockOptions::ReadOnly, ptr::null_mut());
     }
 }
 
@@ -175,6 +207,7 @@ impl Drop for LockedSliceMut<'_> {
             );
             crate::neon_convert::f32_to_f16_bulk(src, dst);
         }
-        self.surface.unlockWithOptions_seed(IOSurfaceLockOptions(0), ptr::null_mut());
+        self.surface
+            .unlockWithOptions_seed(IOSurfaceLockOptions(0), ptr::null_mut());
     }
 }
