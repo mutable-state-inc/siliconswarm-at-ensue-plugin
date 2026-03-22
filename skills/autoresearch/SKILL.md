@@ -2,7 +2,7 @@
 name: autoresearch
 description: "Optimize DistilBERT inference latency on ANE. Beat CoreML."
 argument-hint: "[focus]"
-allowed-tools: Bash(make *), Bash(git *), Bash(./ane_kernel/target/release/ane-bench *), Read(ane_kernel/crates/ane/examples/distilbert_bench.rs), Edit(ane_kernel/crates/ane/examples/distilbert_bench.rs)
+allowed-tools: Bash(make *), Bash(git *), Bash(./ane_kernel/target/release/ane-bench *), Bash(python3 *), Read(ane_kernel/crates/ane/examples/distilbert_bench.rs), Edit(ane_kernel/crates/ane/examples/distilbert_bench.rs)
 triggers:
   - autoresearch
   - optimize
@@ -23,6 +23,21 @@ make build
 ```
 
 `make build` builds everything: the ANE crate, the benchmark, and the `ane-bench` CLI.
+
+## First run
+
+Before optimizing, establish both baselines on this chip:
+
+```bash
+make bench-coreml                    # CoreML baseline — the number to beat
+make verify                          # must pass 8/8
+make bench                           # private API baseline
+```
+
+Record the CoreML baseline (use the median from `make bench-coreml`):
+```bash
+./ane_kernel/target/release/ane-bench baseline <coreml_median_ms>
+```
 
 ## Rules
 
