@@ -24,58 +24,82 @@ const NUM_CLASSES: usize = 2;
 // ─── Reuse the same model code (TODO: factor into shared module) ───────────
 
 struct LayerWeights {
-    sa_ln_w: Box<[f32]>, sa_ln_b: Box<[f32]>,
-    q_w: Box<[f32]>, q_b: Box<[f32]>,
-    k_w: Box<[f32]>, k_b: Box<[f32]>,
-    v_w: Box<[f32]>, v_b: Box<[f32]>,
-    out_w: Box<[f32]>, out_b: Box<[f32]>,
-    ffn_ln_w: Box<[f32]>, ffn_ln_b: Box<[f32]>,
-    ffn1_w: Box<[f32]>, ffn1_b: Box<[f32]>,
-    ffn2_w: Box<[f32]>, ffn2_b: Box<[f32]>,
+    sa_ln_w: Box<[f32]>,
+    sa_ln_b: Box<[f32]>,
+    q_w: Box<[f32]>,
+    q_b: Box<[f32]>,
+    k_w: Box<[f32]>,
+    k_b: Box<[f32]>,
+    v_w: Box<[f32]>,
+    v_b: Box<[f32]>,
+    out_w: Box<[f32]>,
+    out_b: Box<[f32]>,
+    ffn_ln_w: Box<[f32]>,
+    ffn_ln_b: Box<[f32]>,
+    ffn1_w: Box<[f32]>,
+    ffn1_b: Box<[f32]>,
+    ffn2_w: Box<[f32]>,
+    ffn2_b: Box<[f32]>,
 }
 
 struct ModelWeights {
     word_emb: Box<[f32]>,
     pos_emb: Box<[f32]>,
-    emb_ln_w: Box<[f32]>, emb_ln_b: Box<[f32]>,
+    emb_ln_w: Box<[f32]>,
+    emb_ln_b: Box<[f32]>,
     layers: Box<[LayerWeights]>,
-    pre_cls_w: Box<[f32]>, pre_cls_b: Box<[f32]>,
-    cls_w: Box<[f32]>, cls_b: Box<[f32]>,
+    pre_cls_w: Box<[f32]>,
+    pre_cls_b: Box<[f32]>,
+    cls_w: Box<[f32]>,
+    cls_b: Box<[f32]>,
 }
 
 fn tensor_f32(st: &SafeTensors, name: &str) -> Box<[f32]> {
-    let t = st.tensor(name).unwrap_or_else(|_| panic!("missing: {name}"));
+    let t = st
+        .tensor(name)
+        .unwrap_or_else(|_| panic!("missing: {name}"));
     let b = t.data();
     match t.dtype() {
-        Dtype::BF16 => b.chunks_exact(2).map(|c| bf16::from_bits(u16::from_le_bytes([c[0],c[1]])).to_f32()).collect(),
-        Dtype::F16 => b.chunks_exact(2).map(|c| f16::from_bits(u16::from_le_bytes([c[0],c[1]])).to_f32()).collect(),
-        Dtype::F32 => b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0],c[1],c[2],c[3]])).collect(),
+        Dtype::BF16 => b
+            .chunks_exact(2)
+            .map(|c| bf16::from_bits(u16::from_le_bytes([c[0], c[1]])).to_f32())
+            .collect(),
+        Dtype::F16 => b
+            .chunks_exact(2)
+            .map(|c| f16::from_bits(u16::from_le_bytes([c[0], c[1]])).to_f32())
+            .collect(),
+        Dtype::F32 => b
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect(),
         other => panic!("unsupported dtype: {other:?}"),
     }
 }
 
 fn load_weights(st: &SafeTensors) -> ModelWeights {
-    let layers: Box<[LayerWeights]> = (0..NUM_LAYERS).map(|i| {
-        let p = format!("distilbert.transformer.layer.{i}");
-        LayerWeights {
-            sa_ln_w: tensor_f32(st, &format!("{p}.sa_layer_norm.weight")),
-            sa_ln_b: tensor_f32(st, &format!("{p}.sa_layer_norm.bias")),
-            q_w: tensor_f32(st, &format!("{p}.attention.q_lin.weight")),
-            q_b: tensor_f32(st, &format!("{p}.attention.q_lin.bias")),
-            k_w: tensor_f32(st, &format!("{p}.attention.k_lin.weight")),
-            k_b: tensor_f32(st, &format!("{p}.attention.k_lin.bias")),
-            v_w: tensor_f32(st, &format!("{p}.attention.v_lin.weight")),
-            v_b: tensor_f32(st, &format!("{p}.attention.v_lin.bias")),
-            out_w: tensor_f32(st, &format!("{p}.attention.out_lin.weight")),
-            out_b: tensor_f32(st, &format!("{p}.attention.out_lin.bias")),
-            ffn_ln_w: tensor_f32(st, &format!("{p}.output_layer_norm.weight")),
-            ffn_ln_b: tensor_f32(st, &format!("{p}.output_layer_norm.bias")),
-            ffn1_w: tensor_f32(st, &format!("{p}.ffn.lin1.weight")),
-            ffn1_b: tensor_f32(st, &format!("{p}.ffn.lin1.bias")),
-            ffn2_w: tensor_f32(st, &format!("{p}.ffn.lin2.weight")),
-            ffn2_b: tensor_f32(st, &format!("{p}.ffn.lin2.bias")),
-        }
-    }).collect();
+    let layers: Box<[LayerWeights]> = (0..NUM_LAYERS)
+        .map(|i| {
+            let p = format!("distilbert.transformer.layer.{i}");
+            LayerWeights {
+                sa_ln_w: tensor_f32(st, &format!("{p}.sa_layer_norm.weight")),
+                sa_ln_b: tensor_f32(st, &format!("{p}.sa_layer_norm.bias")),
+                q_w: tensor_f32(st, &format!("{p}.attention.q_lin.weight")),
+                q_b: tensor_f32(st, &format!("{p}.attention.q_lin.bias")),
+                k_w: tensor_f32(st, &format!("{p}.attention.k_lin.weight")),
+                k_b: tensor_f32(st, &format!("{p}.attention.k_lin.bias")),
+                v_w: tensor_f32(st, &format!("{p}.attention.v_lin.weight")),
+                v_b: tensor_f32(st, &format!("{p}.attention.v_lin.bias")),
+                out_w: tensor_f32(st, &format!("{p}.attention.out_lin.weight")),
+                out_b: tensor_f32(st, &format!("{p}.attention.out_lin.bias")),
+                ffn_ln_w: tensor_f32(st, &format!("{p}.output_layer_norm.weight")),
+                ffn_ln_b: tensor_f32(st, &format!("{p}.output_layer_norm.bias")),
+                ffn1_w: tensor_f32(st, &format!("{p}.ffn.lin1.weight")),
+                ffn1_b: tensor_f32(st, &format!("{p}.ffn.lin1.bias")),
+                ffn2_w: tensor_f32(st, &format!("{p}.ffn.lin2.weight")),
+                ffn2_b: tensor_f32(st, &format!("{p}.ffn.lin2.bias")),
+            }
+        })
+        .collect();
     ModelWeights {
         word_emb: tensor_f32(st, "distilbert.embeddings.word_embeddings.weight"),
         pos_emb: tensor_f32(st, "distilbert.embeddings.position_embeddings.weight"),
@@ -89,11 +113,31 @@ fn load_weights(st: &SafeTensors) -> ModelWeights {
     }
 }
 
-fn scalar() -> Shape { Shape { batch: 1, channels: 1, height: 1, width: 1 } }
-fn ch(d: usize) -> Shape { Shape { batch: 1, channels: d, height: 1, width: 1 } }
+fn scalar() -> Shape {
+    Shape {
+        batch: 1,
+        channels: 1,
+        height: 1,
+        width: 1,
+    }
+}
+fn ch(d: usize) -> Shape {
+    Shape {
+        batch: 1,
+        channels: d,
+        height: 1,
+        width: 1,
+    }
+}
 
-fn layer_norm(g: &mut Graph, input: ane::Tensor, weight: &[f32], bias: &[f32],
-              d: usize, eps: f64) -> ane::Tensor {
+fn layer_norm(
+    g: &mut Graph,
+    input: ane::Tensor,
+    weight: &[f32],
+    bias: &[f32],
+    d: usize,
+    eps: f64,
+) -> ane::Tensor {
     let w = g.constant(weight, ch(d));
     let b = g.constant(bias, ch(d));
     let eps_c = g.constant_with_scalar(eps as f32, scalar());
@@ -135,16 +179,45 @@ fn compile_encoder_layer(w: &LayerWeights) -> Executable {
     let mut g = Graph::new();
     let x = g.placeholder(Shape::spatial(DIM, 1, SEQ_LEN));
     let q = g.inner_product(x, &w.q_w, DIM, DIM);
-    let q_b = g.constant(&w.q_b, ch(DIM)); let q = g.addition(q, q_b);
+    let q_b = g.constant(&w.q_b, ch(DIM));
+    let q = g.addition(q, q_b);
     let k = g.inner_product(x, &w.k_w, DIM, DIM);
-    let k_b = g.constant(&w.k_b, ch(DIM)); let k = g.addition(k, k_b);
+    let k_b = g.constant(&w.k_b, ch(DIM));
+    let k = g.addition(k, k_b);
     let v = g.inner_product(x, &w.v_w, DIM, DIM);
-    let v_b = g.constant(&w.v_b, ch(DIM)); let v = g.addition(v, v_b);
-    let q = g.reshape(q, Shape { batch: 1, channels: NUM_HEADS, height: HEAD_DIM, width: SEQ_LEN });
-    let k = g.reshape(k, Shape { batch: 1, channels: NUM_HEADS, height: HEAD_DIM, width: SEQ_LEN });
-    let v = g.reshape(v, Shape { batch: 1, channels: NUM_HEADS, height: HEAD_DIM, width: SEQ_LEN });
+    let v_b = g.constant(&w.v_b, ch(DIM));
+    let v = g.addition(v, v_b);
+    let q = g.reshape(
+        q,
+        Shape {
+            batch: 1,
+            channels: NUM_HEADS,
+            height: HEAD_DIM,
+            width: SEQ_LEN,
+        },
+    );
+    let k = g.reshape(
+        k,
+        Shape {
+            batch: 1,
+            channels: NUM_HEADS,
+            height: HEAD_DIM,
+            width: SEQ_LEN,
+        },
+    );
+    let v = g.reshape(
+        v,
+        Shape {
+            batch: 1,
+            channels: NUM_HEADS,
+            height: HEAD_DIM,
+            width: SEQ_LEN,
+        },
+    );
     let hw = [0, 1, 3, 2];
-    let q = g.transpose(q, hw); let k = g.transpose(k, hw); let v = g.transpose(v, hw);
+    let q = g.transpose(q, hw);
+    let k = g.transpose(k, hw);
+    let v = g.transpose(v, hw);
     let scale = g.constant_with_scalar(1.0 / (HEAD_DIM as f32).sqrt(), scalar());
     let raw = g.matrix_multiplication(q, k, false, true);
     let scores = g.multiplication(raw, scale);
@@ -153,29 +226,36 @@ fn compile_encoder_layer(w: &LayerWeights) -> Executable {
     let attn = g.transpose(attn_raw, hw);
     let attn = g.reshape(attn, Shape::spatial(DIM, 1, SEQ_LEN));
     let o = g.inner_product(attn, &w.out_w, DIM, DIM);
-    let o_b = g.constant(&w.out_b, ch(DIM)); let o = g.addition(o, o_b);
+    let o_b = g.constant(&w.out_b, ch(DIM));
+    let o = g.addition(o, o_b);
     // POST-norm: residual then LayerNorm
     let sa = g.addition(o, x);
     let sa = layer_norm(&mut g, sa, &w.sa_ln_w, &w.sa_ln_b, DIM, 1e-12);
     let fc1 = g.inner_product(sa, &w.ffn1_w, DIM, FFN_DIM);
-    let fc1_b = g.constant(&w.ffn1_b, ch(FFN_DIM)); let fc1 = g.addition(fc1, fc1_b);
+    let fc1_b = g.constant(&w.ffn1_b, ch(FFN_DIM));
+    let fc1 = g.addition(fc1, fc1_b);
     let fc1 = gelu(&mut g, fc1);
     let fc2 = g.inner_product(fc1, &w.ffn2_w, FFN_DIM, DIM);
-    let fc2_b = g.constant(&w.ffn2_b, ch(DIM)); let fc2 = g.addition(fc2, fc2_b);
+    let fc2_b = g.constant(&w.ffn2_b, ch(DIM));
+    let fc2 = g.addition(fc2, fc2_b);
     let ffn = g.addition(fc2, sa);
     let _ = layer_norm(&mut g, ffn, &w.ffn_ln_w, &w.ffn_ln_b, DIM, 1e-12);
-    g.compile(NSQualityOfService::UserInteractive).expect("layer compile")
+    g.compile(NSQualityOfService::UserInteractive)
+        .expect("layer compile")
 }
 
 fn compile_classifier(w: &ModelWeights) -> Executable {
     let mut g = Graph::new();
     let x = g.placeholder(Shape::spatial(DIM, 1, SEQ_LEN));
     let pre = g.inner_product(x, &w.pre_cls_w, DIM, DIM);
-    let pre_b = g.constant(&w.pre_cls_b, ch(DIM)); let pre = g.addition(pre, pre_b);
+    let pre_b = g.constant(&w.pre_cls_b, ch(DIM));
+    let pre = g.addition(pre, pre_b);
     let pre = g.relu(pre);
     let cls = g.inner_product(pre, &w.cls_w, DIM, NUM_CLASSES);
-    let cls_b = g.constant(&w.cls_b, ch(NUM_CLASSES)); let _ = g.addition(cls, cls_b);
-    g.compile(NSQualityOfService::UserInteractive).expect("classifier compile")
+    let cls_b = g.constant(&w.cls_b, ch(NUM_CLASSES));
+    let _ = g.addition(cls, cls_b);
+    g.compile(NSQualityOfService::UserInteractive)
+        .expect("classifier compile")
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────
@@ -191,11 +271,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let st = SafeTensors::deserialize(&sf_bytes)?;
     let weights = load_weights(&st);
     // Use base distilbert tokenizer (same vocab as finetuned)
-    let tok_path = api.model("distilbert-base-uncased".to_string()).get("tokenizer.json")?;
+    let tok_path = api
+        .model("distilbert-base-uncased".to_string())
+        .get("tokenizer.json")?;
     let tokenizer = Tokenizer::from_file(&tok_path).map_err(|e| format!("tokenizer: {e}"))?;
 
     eprint!("  Compiling... ");
-    let layer_exes: Vec<Executable> = weights.layers.iter().map(|lw| compile_encoder_layer(lw)).collect();
+    let layer_exes: Vec<Executable> = weights
+        .layers
+        .iter()
+        .map(|lw| compile_encoder_layer(lw))
+        .collect();
     let cls_exe = compile_classifier(&weights);
     eprintln!("ok");
 
@@ -212,30 +298,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for pos in 0..SEQ_LEN {
             let tok = if pos < len { ids[pos] as usize } else { 0 };
             for c in 0..DIM {
-                surf[c * SEQ_LEN + pos] = weights.word_emb[tok * DIM + c] + weights.pos_emb[pos * DIM + c];
+                surf[c * SEQ_LEN + pos] =
+                    weights.word_emb[tok * DIM + c] + weights.pos_emb[pos * DIM + c];
             }
         }
         for s in 0..SEQ_LEN {
             let mut mean = 0f32;
-            for c in 0..DIM { mean += surf[c * SEQ_LEN + s]; }
+            for c in 0..DIM {
+                mean += surf[c * SEQ_LEN + s];
+            }
             mean /= DIM as f32;
             let mut var = 0f32;
-            for c in 0..DIM { let d = surf[c * SEQ_LEN + s] - mean; var += d * d; }
+            for c in 0..DIM {
+                let d = surf[c * SEQ_LEN + s] - mean;
+                var += d * d;
+            }
             var /= DIM as f32;
             let rstd = 1.0 / (var + 1e-12_f32).sqrt();
             for c in 0..DIM {
-                surf[c * SEQ_LEN + s] = (surf[c * SEQ_LEN + s] - mean) * rstd
-                    * weights.emb_ln_w[c] + weights.emb_ln_b[c];
+                surf[c * SEQ_LEN + s] = (surf[c * SEQ_LEN + s] - mean) * rstd * weights.emb_ln_w[c]
+                    + weights.emb_ln_b[c];
             }
         }
     };
 
     let run = || {
         for (i, exe) in layer_exes.iter().enumerate() {
-            let (src, dst) = if i % 2 == 0 { (&hidden_a, &hidden_b) } else { (&hidden_b, &hidden_a) };
+            let (src, dst) = if i % 2 == 0 {
+                (&hidden_a, &hidden_b)
+            } else {
+                (&hidden_b, &hidden_a)
+            };
             exe.run(&[src], &[dst]).unwrap();
         }
-        let fh = if layer_exes.len() % 2 == 0 { &hidden_a } else { &hidden_b };
+        let fh = if layer_exes.len() % 2 == 0 {
+            &hidden_a
+        } else {
+            &hidden_b
+        };
         cls_exe.run(&[fh], &[&cls_out]).unwrap();
         let out = cls_out.as_f32_slice();
         let neg = out[0];
@@ -246,11 +346,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let test_cases = [
         ("I love this movie, it's absolutely wonderful!", "POSITIVE"),
         ("This is the worst film I have ever seen.", "NEGATIVE"),
-        ("The food was delicious and the service was excellent.", "POSITIVE"),
+        (
+            "The food was delicious and the service was excellent.",
+            "POSITIVE",
+        ),
         ("I hate waiting in long lines at the store.", "NEGATIVE"),
         ("What a beautiful day to be alive!", "POSITIVE"),
-        ("The product broke after one day, total waste of money.", "NEGATIVE"),
-        ("This book changed my life in the best way possible.", "POSITIVE"),
+        (
+            "The product broke after one day, total waste of money.",
+            "NEGATIVE",
+        ),
+        (
+            "This book changed my life in the best way possible.",
+            "POSITIVE",
+        ),
         ("Terrible customer service, never coming back.", "NEGATIVE"),
     ];
 
@@ -260,7 +369,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         embed_sentence(text);
         let label = run();
         let ok = label == *expected;
-        if ok { passed += 1; }
+        if ok {
+            passed += 1;
+        }
         eprintln!("  {} \"{}\"", if ok { "✓" } else { "✗" }, text);
         eprintln!("    Expected: {expected}, Got: {label}");
     }

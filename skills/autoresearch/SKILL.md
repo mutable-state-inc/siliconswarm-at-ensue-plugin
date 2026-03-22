@@ -20,17 +20,12 @@ Optimize DistilBERT inference latency on Apple Neural Engine using the private `
 ```bash
 cd "${CLAUDE_SKILL_DIR}/../.."
 make build
-# Build the coordinator CLI
 cd ane_kernel && cargo build --release -p ane-bench && cd ..
 export PATH="${PATH}:$(pwd)/ane_kernel/target/release"
+ane-bench chip
 ```
 
-Detect this machine's chip and namespace:
-```bash
-ane-bench chip     # prints e.g. "m1-max"
-ane-bench best     # current best + baseline for this chip
-ane-bench results  # what's been tried on this chip
-```
+If collaborative mode is active (Ensue API key exists), read `collab.md` for the full coordination protocol — per-chip namespaces, publishing rules, cross-chip insights.
 
 ## Editable file
 

@@ -33,9 +33,7 @@ fn chip_name() -> String {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_else(|_| "unknown".into());
     // Normalize: "Apple M1 Max" → "m1-max"
-    out.to_lowercase()
-        .replace("apple ", "")
-        .replace(' ', "-")
+    out.to_lowercase().replace("apple ", "").replace(' ', "-")
 }
 
 fn chip_slug(chip: &str) -> String {
@@ -111,7 +109,11 @@ fn search_memories(query: &str, prefix: &str) -> Vec<(String, String)> {
         .iter()
         .filter_map(|v| {
             let key = v.get("key")?.as_str()?.to_string();
-            let snippet = v.get("snippet").and_then(|s| s.as_str()).unwrap_or("").to_string();
+            let snippet = v
+                .get("snippet")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string();
             Some((key, snippet))
         })
         .collect()
@@ -158,7 +160,10 @@ fn cmd_publish(chip: &str, agent: &str, status: &str, median_ms: f64, descriptio
         // Update best if this is a keep and beats current best
         if status == "keep" {
             if let Some(best) = read_memory(&format!("@{ORG}/{chip}/best/metadata")) {
-                let best_ms = best.get("median_ms").and_then(|v| v.as_f64()).unwrap_or(f64::MAX);
+                let best_ms = best
+                    .get("median_ms")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(f64::MAX);
                 if median_ms < best_ms {
                     let best_val = serde_json::json!({
                         "agent": agent,
@@ -227,7 +232,10 @@ fn cmd_results(chip: &str) {
         if let Some(val) = read_memory(key) {
             let ms = val.get("median_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
             let status = val.get("status").and_then(|v| v.as_str()).unwrap_or("?");
-            let desc = val.get("description").and_then(|v| v.as_str()).unwrap_or("?");
+            let desc = val
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
             println!("  {ms:6.3}ms [{status:7}] {desc}");
         }
     }
@@ -238,14 +246,20 @@ fn cmd_best(chip: &str) {
         Some(val) => {
             let ms = val.get("median_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
             let agent = val.get("agent").and_then(|v| v.as_str()).unwrap_or("?");
-            let desc = val.get("description").and_then(|v| v.as_str()).unwrap_or("?");
+            let desc = val
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
             println!("Best for {chip}: {ms:.3}ms by {agent} — {desc}");
         }
         None => println!("No best for {chip} yet. Run `ane-bench baseline` first."),
     }
     match read_memory(&format!("@{ORG}/{chip}/baseline")) {
         Some(val) => {
-            let ms = val.get("coreml_median_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let ms = val
+                .get("coreml_median_ms")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
             println!("CoreML baseline: {ms:.3}ms");
         }
         None => println!("No CoreML baseline. Run `ane-bench baseline <ms>`."),
@@ -311,12 +325,11 @@ fn short_hash(s: &str) -> String {
 }
 
 fn chrono_now() -> String {
-    let output = Command::new("date")
+    Command::new("date")
         .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|_| "unknown".into());
-    output
+        .unwrap_or_else(|_| "unknown".into())
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────
@@ -330,7 +343,8 @@ fn main() {
         "chip" => cmd_chip(),
 
         "baseline" => {
-            let ms: f64 = args.get(2)
+            let ms: f64 = args
+                .get(2)
                 .expect("Usage: ane-bench baseline <coreml_median_ms>")
                 .parse()
                 .expect("invalid number");
@@ -339,7 +353,8 @@ fn main() {
 
         "publish" => {
             let agent = arg_flag(&args, "--agent").expect("--agent required");
-            let status = arg_flag(&args, "--status").expect("--status required (keep|discard|crash)");
+            let status =
+                arg_flag(&args, "--status").expect("--status required (keep|discard|crash)");
             let median = arg_flag(&args, "--median").expect("--median required (ms)");
             let desc = arg_flag(&args, "--description").expect("--description required");
             let ms: f64 = median.parse().expect("invalid median");
@@ -377,15 +392,21 @@ fn main() {
             eprintln!("Commands:");
             eprintln!("  chip                              Print detected chip name");
             eprintln!("  baseline <coreml_ms>              Record CoreML baseline for this chip");
-            eprintln!("  publish --agent=X --status=keep|discard --median=X.X --description=\"...\"");
+            eprintln!(
+                "  publish --agent=X --status=keep|discard --median=X.X --description=\"...\""
+            );
             eprintln!("                                    Publish experiment result");
             eprintln!("  insight --agent=X <text>          Share an observation");
             eprintln!("  hypothesis --agent=X --title=\"...\" --text=\"...\"");
             eprintln!("                                    Propose an experiment idea");
             eprintln!("  results                           List all results for this chip");
-            eprintln!("  best                              Show best result + baseline for this chip");
+            eprintln!(
+                "  best                              Show best result + baseline for this chip"
+            );
             eprintln!("  insights                          List insights for this chip");
-            eprintln!("  search <query>                    Semantic search within this chip's namespace");
+            eprintln!(
+                "  search <query>                    Semantic search within this chip's namespace"
+            );
         }
     }
 }
