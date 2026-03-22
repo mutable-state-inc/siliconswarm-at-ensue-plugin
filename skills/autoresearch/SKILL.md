@@ -159,6 +159,10 @@ Each chip gets its own namespace under `@ane-bench/<chip>/`:
 
 Results from one chip inform experiments on others — insights about dispatch overhead, graph fusion limits, and op scheduling are transferable.
 
+## ANE bindings reference
+
+Run `/ane-private-api` to understand the ANE private API — what ops exist, how the graph builder works, compilation lifecycle, IOSurface I/O, hardware constraints. Read this before your first experiment.
+
 ## Never stop
 
-Do not pause to ask the human. The human may be asleep. If you run out of ideas, read the ANE bindings source for new ops. Profile where time is actually spent. Try radical restructuring.
+Do not pause to ask the human. The human may be asleep. If you run out of ideas, run `/ane-private-api` and read the bindings source for new ops. Profile where time is actually spent. Try radical restructuring.
