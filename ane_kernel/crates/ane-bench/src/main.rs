@@ -243,9 +243,9 @@ fn cmd_publish(chip: &str, agent: &str, status: &str, median_ms: f64, descriptio
                     });
                     let best_key = format!("@{ORG}/{chip}/best/metadata");
                     let best_desc = format!("Best for {chip}: {median_ms:.3}ms — {description}");
-                    // Delete old then create new (handles cross-agent ownership)
-                    rpc("delete_memory", serde_json::json!({"key_names": [&best_key]}));
-                    write_memory(&best_key, &best_desc, &best_val);
+                    if !update_memory(&best_key, &best_desc, &best_val) {
+                        write_memory(&best_key, &best_desc, &best_val);
+                    }
                     println!("  New best for {chip}! {best_ms:.3}ms → {median_ms:.3}ms");
                 }
             } else {
@@ -353,8 +353,10 @@ fn cmd_best(chip: &str) {
         });
         let best_key = format!("@{ORG}/{chip}/best/metadata");
         let best_d = format!("Best for {chip}: {best_ms:.3}ms — {best_desc}");
-        rpc("delete_memory", serde_json::json!({"key_names": [&best_key]}));
-        write_memory(&best_key, &best_d, &best_val);
+        if !update_memory(&best_key, &best_d, &best_val) {
+            // Key might not exist yet or owned by different agent
+            write_memory(&best_key, &best_d, &best_val);
+        }
     } else {
         println!("No results for {chip} yet.");
     }
