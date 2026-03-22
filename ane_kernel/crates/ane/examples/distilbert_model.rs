@@ -129,29 +129,22 @@ pub fn layer_norm(g: &mut Graph, x: ane::Tensor, w: &[f32], b: &[f32], d: usize)
     let wt = g.constant(w, sc(d));
     let bt = g.constant(b, sc(d));
     let eps = g.constant_with_scalar(1e-12, s1());
-    let nhalf = g.constant_with_scalar(-0.5, s1());
     let mean = g.reduce_mean(x, 1);
     let centered = g.subtraction(x, mean);
     let sq = g.multiplication(centered, centered);
     let var = g.reduce_mean(sq, 1);
     let var_eps = g.addition(var, eps);
-    let rstd = g.power(var_eps, nhalf);
+    let rstd = g.reciprocal_square_root(var_eps);
     let normed = g.multiplication(centered, rstd);
     let scaled = g.multiplication(normed, wt);
     g.addition(scaled, bt)
 }
 
 pub fn gelu(g: &mut Graph, x: ane::Tensor) -> ane::Tensor {
-    let c = g.constant_with_scalar(0.044715, s1());
-    let s = g.constant_with_scalar(0.797_884_6, s1());
-    let x2 = g.multiplication(x, x);
-    let x3 = g.multiplication(x2, x);
-    let cx3 = g.multiplication(c, x3);
-    let inner = g.addition(x, cx3);
-    let arg = g.multiplication(s, inner);
-    let th = g.tanh(arg);
-    let coeff = g.linear(th, 0.5, 0.5); // 0.5*tanh + 0.5 = 0.5*(1+tanh)
-    g.multiplication(x, coeff)
+    // Sigmoid GELU approximation: x * sigmoid(1.702 * x) — 3 ops vs 8
+    let scaled = g.linear(x, 1.702, 0.0);
+    let sig = g.sigmoid(scaled);
+    g.multiplication(x, sig)
 }
 
 // ─── Layer graph builder ──────────────────────────────────────────────────

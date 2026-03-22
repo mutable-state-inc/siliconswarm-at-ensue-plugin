@@ -46,6 +46,7 @@ Then publish the baseline (use `ane-bench chip` for chip name):
 - Edit ONLY `ane_kernel/crates/ane/examples/distilbert_model.rs`
 - Do NOT read any other source files. Run `/ane-private-api` for the API reference.
 - `make verify` THEN `make bench`. Never skip verify.
+- Run ONE command per Bash call. Do NOT chain commands with `&&`, `||`, `;`, or `echo`. Each command gets its own Bash call.
 
 ## Loop
 
