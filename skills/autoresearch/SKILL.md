@@ -1,6 +1,6 @@
 ---
 name: autoresearch
-description: "Beat Apple's CoreML DistilBERT benchmark using the ANE private API. Optimize inference latency."
+description: "Optimize ANE inference latency for DistilBERT. Beat CoreML."
 argument-hint: "[focus]"
 allowed-tools: Bash(*), Read, Write, Edit, Glob, Grep, Agent
 triggers:
@@ -10,50 +10,13 @@ triggers:
   - distilbert
 ---
 
-# autoresearch — Beat CoreML on DistilBERT
+# autoresearch
 
-## Goal
+Optimize DistilBERT inference latency on Apple Neural Engine via the private `_ANEInMemoryModel` API. The target: beat Apple's CoreML on the same model, same hardware.
 
-Beat Apple's published DistilBERT ANE benchmark using the private `_ANEInMemoryModel` API instead of CoreML.
+**The metric: median inference latency in milliseconds (lower is better).**
 
-**The metric: inference latency in milliseconds (lower is better).**
-
-| Baseline | Latency | Source |
-|----------|---------|--------|
-| Apple published (iPhone 13) | 3.47ms | [Apple ML Research](https://machinelearning.apple.com/research/neural-engine-transformers) |
-| CoreML on M1 Max (measured) | 5.86ms | Our benchmark of Apple's `DistilBERT_fp16.mlpackage` |
-| **Our private API (target)** | **< 5.86ms** | `_ANEInMemoryModel` direct ANE access |
-
-## Model
-
-**DistilBERT** (`distilbert-base-uncased-finetuned-sst-2-english`) — sentiment classifier.
-
-- 6 transformer layers, dim=768, 12 heads, head_dim=64
-- Encoder-only (no autoregressive decode, no KV cache)
-- Sequence length 128, batch size 1
-- LayerNorm, GELU activation, absolute position embeddings
-- 66M parameters, fp16
-- Same architecture as GPT-2 (our proven working kernel)
-
-Apple's pre-built CoreML model: [apple/ane-distilbert-base-uncased-finetuned-sst-2-english](https://huggingface.co/apple/ane-distilbert-base-uncased-finetuned-sst-2-english)
-
-## Why we can win
-
-CoreML adds overhead that the private API skips:
-- **Scheduler** — CoreML decides CPU/GPU/ANE per op. We force ANE directly.
-- **Buffer management** — CoreML manages IOSurfaces through abstractions. We use raw IOSurfaces.
-- **Model loading** — CoreML compiles `.mlpackage` at load time. We pre-compile MIL in memory.
-- **Per-inference overhead** — CoreML's `predict()` has Python→ObjC→ANE indirection.
-
-Estimated breakdown of CoreML's 5.86ms:
-```
-CoreML runtime overhead:    ~1-2ms (scheduling, buffer mgmt, Python bridge)
-IOSurface conversion:       ~0.5ms
-Actual ANE compute:         ~3-4ms
-Result readback:            ~0.5ms
-```
-
-If we eliminate 1-2ms of CoreML overhead → **~4ms**, beating CoreML by 30%.
+The baseline to beat is CoreML at **5.86ms** on M1 Max, running Apple's own ANE-optimized DistilBERT.
 
 ## Setup
 
@@ -62,79 +25,64 @@ cd "${CLAUDE_SKILL_DIR}/../.."
 make build
 ```
 
-CoreML baseline (requires Python with coremltools):
+## Editable files
+
+**One file.** All experimentation happens here:
+
+- `ane_kernel/crates/ane/examples/distilbert_bench.rs` — the kernel. Graph construction, layer fusion, IOSurface management, benchmark loop.
+
+## Read-only files
+
+Do not modify these:
+
+- `ane_kernel/crates/ane/src/` — ANE bindings (the private API wrapper)
+- `ane_kernel/crates/ane/examples/distilbert_verify.rs` — correctness tests
+- `Makefile` — build/bench/verify targets
+
+## Verification
+
+**Every change must pass verification. No exceptions.**
+
 ```bash
-python3 benchmark_coreml.py  # measures CoreML latency
+make verify    # must exit 0 with "ALL TESTS PASSED"
 ```
 
-## What to build
+If verify fails, the change is wrong. Revert. Do not benchmark. Do not commit.
 
-A single Rust example: `ane_kernel/crates/ane/examples/distilbert_bench.rs`
+## Benchmarking
 
-This file should:
-1. Load DistilBERT weights from safetensors (HuggingFace)
-2. Compile the 6-layer transformer encoder as ANE graphs via `_ANEInMemoryModel`
-3. Run 1000 inferences at sequence length 128
-4. Report mean/median/p95 latency in milliseconds
-5. Compare against CoreML baseline
-
-### Architecture (what to implement)
-
-```
-Input: [1, 128] token IDs
-  → Embedding lookup (CPU: token + position → [768, 1, 128])
-  → 6x Transformer encoder layer (ANE):
-      LayerNorm → Q/K/V projection → attention → output projection → residual
-      → LayerNorm → FC up (768→3072) → GELU → FC down (3072→768) → residual
-  → Pooling (take [CLS] token)
-  → Classifier head (768 → 2)
-Output: [positive, negative] logit scores
+```bash
+make bench     # 1000 iterations, reports median/mean/p5/p95/min
 ```
 
-### Key optimizations to try
-
-1. **Merge layers** — fuse attention+FFN into one ANE graph per layer (fewer dispatches)
-2. **Fuse multiple layers** — if ANE compiler allows, 2-3 layers per graph
-3. **Pre-allocate IOSurfaces** — reuse between inferences, avoid allocation
-4. **Minimize f32↔fp16 conversion** — write/read fp16 directly where possible
-5. **QoS tuning** — try `NSQualityOfService::UserInteractive` vs `Default`
-
-### Available ANE ops (from the `ane` crate)
-
-```
-inner_product, matrix_multiplication, convolution_2d,
-addition, subtraction, multiplication, division, power,
-relu, tanh, sigmoid, gelu (via tanh approximation),
-soft_max, reduce_sum, reduce_mean,
-concat, slice, reshape, transpose, flatten_2d,
-pad, max_pool, avg_pool, global_avg_pool
-```
-
-## Measurement
-
-```rust
-// Warmup
-for _ in 0..50 { exe.run(&inputs, &outputs).unwrap(); }
-
-// Benchmark
-let mut times = Vec::new();
-for _ in 0..1000 {
-    let start = std::time::Instant::now();
-    exe.run(&inputs, &outputs).unwrap();
-    times.push(start.elapsed().as_micros());
-}
-times.sort();
-let median = times[times.len() / 2];
-println!("Median: {:.3}ms", median as f64 / 1000.0);
-```
+Only run after `make verify` passes.
 
 ## The loop
 
 ```
-1. HYPOTHESIS — what change will reduce latency?
-2. IMPLEMENT — edit distilbert_bench.rs
-3. BUILD — make build
-4. MEASURE — cargo run --release --example distilbert_bench
-5. COMPARE — is median latency < 5.86ms?
-6. KEEP or REVERT
+1. Read distilbert_bench.rs — understand current state
+2. Hypothesize — what change will reduce latency and why?
+3. Implement — edit distilbert_bench.rs
+4. make build — must compile
+5. make verify — must pass (8/8 tests)
+6. make bench — measure median latency
+7. If improved: git add -A && git commit -m "<description>"
+8. If not: git checkout -- ane_kernel/crates/ane/examples/distilbert_bench.rs
+9. Goto 1
 ```
+
+**The goal is simple: get the lowest median latency.** Everything in `distilbert_bench.rs` is fair game.
+
+**Simplicity criterion**: all else being equal, simpler is better. Removing something and getting equal or better results is a win.
+
+**The first run**: establish the baseline — run `make verify` then `make bench` without changing anything.
+
+## Never stop
+
+Once the loop begins, do not pause to ask the human. The human may be asleep. You are autonomous.
+
+If you run out of ideas:
+1. Re-read the kernel code and the ANE bindings for new levers
+2. Profile — where is time actually spent?
+3. Try radical restructuring, not just parameter tweaking
+4. Read `ane_kernel/crates/ane/src/graph/ops.rs` for ops you haven't tried
