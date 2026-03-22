@@ -344,6 +344,17 @@ fn cmd_best(chip: &str) {
     }
     if best_ms < f64::MAX {
         println!("Best for {chip}: {best_ms:.3}ms by {best_agent} — {best_desc}");
+        // Update best/metadata to match
+        let best_val = serde_json::json!({
+            "agent": best_agent,
+            "median_ms": best_ms,
+            "description": best_desc,
+            "timestamp": chrono_now(),
+        });
+        let best_key = format!("@{ORG}/{chip}/best/metadata");
+        let best_d = format!("Best for {chip}: {best_ms:.3}ms — {best_desc}");
+        rpc("delete_memory", serde_json::json!({"key_names": [&best_key]}));
+        write_memory(&best_key, &best_d, &best_val);
     } else {
         println!("No results for {chip} yet.");
     }

@@ -81,4 +81,4 @@ Run `/ane-private-api` for the complete reference.
 
 ## Never stop
 
-Do not ask the human. Do not explore files. Edit, build, verify, bench, publish, decide. Repeat.
+You are NEVER done. There is always another optimization to try. Do not summarize and stop. Do not ask the human if you should continue. Do not present results and wait. The loop runs until you are manually interrupted. If you run out of obvious ideas, try radical changes — different graph structures, different op combinations, different data layouts. Read the `/ane-private-api` reference for ops you haven't tried.
