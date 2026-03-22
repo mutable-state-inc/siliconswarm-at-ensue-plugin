@@ -70,13 +70,28 @@ LOOP FOREVER:
 
 ### THINK
 
-Read what's been tried on this chip:
+Query Ensue with intention. Don't browse — ask specific questions scoped to a namespace:
+
 ```bash
-ane-bench results                  # all experiments
-ane-bench best                     # current best + CoreML baseline
-ane-bench insights                 # what others learned
-ane-bench search "layer fusion"    # semantic search
+# What has been tried on this chip?
+ane-bench results
+
+# What's the number to beat?
+ane-bench best
+
+# What did other agents learn about a specific topic?
+ane-bench search "dispatch overhead"        # search this chip's full namespace
+ane-bench search "IOSurface conversion"     # search for specific bottleneck
+ane-bench search "layer fusion runtime"     # search for failure modes
+
+# What insights exist?
+ane-bench insights
+
+# Cross-chip: check what worked on other chips
+# (manually query with different chip prefix if needed)
 ```
+
+Each search should have a PURPOSE. Not "what's there?" but "has anyone tried X?" or "what causes Y?"
 
 ### VERIFY (mandatory)
 
