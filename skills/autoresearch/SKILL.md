@@ -33,8 +33,9 @@ make verify
 make bench
 ```
 
-Then publish the baseline:
+Then publish the baseline (use `ane-bench chip` for chip name):
 ```
+./ane_kernel/target/release/ane-bench chip
 ./ane_kernel/target/release/ane-bench baseline <coreml_median_ms>
 ./ane_kernel/target/release/ane-bench publish --agent=<NAME> --status=keep --median=<ane_median_ms> --description="baseline"
 ./ane_kernel/target/release/ane-bench insight --agent=<NAME> "baseline: ANE <X>ms vs CoreML <Y>ms on <chip>"
