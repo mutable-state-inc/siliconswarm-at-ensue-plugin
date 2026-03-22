@@ -94,10 +94,16 @@ fn layer_norm(g: &mut Graph, x: ane::Tensor, w: &[f32], b: &[f32], d: usize) -> 
     let bt = g.constant(b, sc(d));
     let eps = g.constant_with_scalar(1e-12, s1());
     let nhalf = g.constant_with_scalar(-0.5, s1());
-    let mean = g.reduce_mean(x, 1);
-    let centered = g.subtraction(x, mean);
+    let inv_d = g.constant_with_scalar(1.0 / d as f32, s1());
+    let neg_one = g.constant_with_scalar(-1.0, s1());
+    // Use reduce_sum * inv_d instead of reduce_mean for more control
+    let sum = g.reduce_sum(x, 1);
+    let mean = g.multiplication(sum, inv_d);
+    let neg_mean = g.multiplication(mean, neg_one);
+    let centered = g.addition(x, neg_mean);
     let sq = g.multiplication(centered, centered);
-    let var = g.reduce_mean(sq, 1);
+    let var_sum = g.reduce_sum(sq, 1);
+    let var = g.multiplication(var_sum, inv_d);
     let var_eps = g.addition(var, eps);
     let rstd = g.power(var_eps, nhalf);
     let normed = g.multiplication(centered, rstd);
@@ -134,23 +140,33 @@ fn compile_layer(w: &LW) -> Executable {
     let k = g.addition(g.inner_product(x, &w.k_w, DIM, DIM), g.constant(&w.k_b, sc(DIM)));
     let v = g.addition(g.inner_product(x, &w.v_w, DIM, DIM), g.constant(&w.v_b, sc(DIM)));
 
-    // Multi-head reshape + transpose
-    let mh = |g: &mut Graph, t: ane::Tensor| {
-        let r = g.reshape(t, Shape { batch: 1, channels: HEADS, height: HD, width: SEQ });
-        g.transpose(r, [0, 1, 3, 2]) // [1, heads, SEQ, HD]
-    };
-    let q = mh(&mut g, q);
-    let k = mh(&mut g, k);
-    let v = mh(&mut g, v);
-
-    // Attention
+    // Per-head attention (Apple's ANE optimization: single-head ops for better precision)
     let scale = g.constant_with_scalar(1.0 / (HD as f32).sqrt(), s1());
-    let scores = g.multiplication(g.matrix_multiplication(q, k, false, true), scale);
-    let masked = g.addition(scores, mask);
-    let probs = g.soft_max(masked, -1);
-    let attn = g.matrix_multiplication(probs, v, false, false);
-    let attn = g.transpose(attn, [0, 1, 3, 2]); // back to [1, heads, HD, SEQ]
-    let attn = g.reshape(attn, Shape::spatial(DIM, 1, SEQ));
+    let mut head_outputs = Vec::new();
+    for h in 0..HEADS {
+        let qh = g.slice(q, [0, h * HD, 0, 0], [1, HD, 1, SEQ]); // [1, HD, 1, SEQ]
+        let kh = g.slice(k, [0, h * HD, 0, 0], [1, HD, 1, SEQ]);
+        let vh = g.slice(v, [0, h * HD, 0, 0], [1, HD, 1, SEQ]);
+        // Transpose to [1, 1, SEQ, HD] for matmul — use channels=1 since single head
+        let qh = g.reshape(qh, Shape { batch: 1, channels: 1, height: HD, width: SEQ });
+        let qh = g.transpose(qh, [0, 1, 3, 2]); // [1, 1, SEQ, HD]
+        let kh = g.reshape(kh, Shape { batch: 1, channels: 1, height: HD, width: SEQ });
+        let kh = g.transpose(kh, [0, 1, 3, 2]); // [1, 1, SEQ, HD]
+        let vh = g.reshape(vh, Shape { batch: 1, channels: 1, height: HD, width: SEQ });
+        let vh = g.transpose(vh, [0, 1, 3, 2]); // [1, 1, SEQ, HD]
+        // Q @ K^T / sqrt(d)
+        let raw = g.matrix_multiplication(qh, kh, false, true); // [1, 1, SEQ, SEQ]
+        let scores = g.multiplication(raw, scale);
+        let masked = g.addition(scores, mask);
+        let probs = g.soft_max(masked, -1);
+        // attn @ V
+        let ah = g.matrix_multiplication(probs, vh, false, false); // [1, 1, SEQ, HD]
+        let ah = g.transpose(ah, [0, 1, 3, 2]); // [1, 1, HD, SEQ]
+        let ah = g.reshape(ah, Shape::spatial(HD, 1, SEQ)); // [1, HD, 1, SEQ]
+        head_outputs.push(ah);
+    }
+    let refs: Vec<ane::Tensor> = head_outputs.iter().copied().collect();
+    let attn = g.concat(&refs, 1); // [1, DIM, 1, SEQ]
 
     // Output projection + residual + LayerNorm (POST-norm)
     let o = g.addition(g.inner_product(attn, &w.out_w, DIM, DIM), g.constant(&w.out_b, sc(DIM)));
