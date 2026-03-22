@@ -24,20 +24,22 @@ make build
 
 `make build` builds everything: the ANE crate, the benchmark, and the `ane-bench` CLI.
 
-## First run
+## First run (mandatory, no exceptions)
 
-Before optimizing, establish both baselines on this chip:
+You MUST run these three commands before doing anything else. Even if Ensue shows existing results. The CoreML baseline is per-machine and must be measured fresh.
 
 ```bash
-make bench-coreml                    # CoreML baseline — the number to beat
+make bench-coreml                    # measure CoreML on THIS machine — the number to beat
 make verify                          # must pass 8/8
-make bench                           # private API baseline
+make bench                           # measure private API on THIS machine
 ```
 
-Record the CoreML baseline (use the median from `make bench-coreml`):
+Record the CoreML median from the output:
 ```bash
 ./ane_kernel/target/release/ane-bench baseline <coreml_median_ms>
 ```
+
+Do NOT skip this. Do NOT reuse someone else's baseline. Measure it yourself.
 
 ## Rules
 

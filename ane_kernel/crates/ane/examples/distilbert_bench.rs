@@ -145,7 +145,6 @@ fn layer_norm(
     let b = g.constant(bias, ch(d));
     let eps_c = g.constant_with_scalar(eps as f32, scalar());
     let inv_d = g.constant_with_scalar(1.0 / d as f32, scalar());
-    let neg_half = g.constant_with_scalar(-0.5, scalar());
     let neg_one = g.constant_with_scalar(-1.0, scalar());
     let sum = g.reduce_sum(input, 1);
     let mean = g.multiplication(sum, inv_d);
@@ -155,26 +154,19 @@ fn layer_norm(
     let var_sum = g.reduce_sum(sq, 1);
     let var = g.multiplication(var_sum, inv_d);
     let var_eps = g.addition(var, eps_c);
-    let rstd = g.power(var_eps, neg_half);
+    let rstd = g.reciprocal_square_root(var_eps);
     let normed = g.multiplication(centered, rstd);
     let scaled = g.multiplication(normed, w);
     g.addition(scaled, b)
 }
 
 fn gelu(g: &mut Graph, input: ane::Tensor) -> ane::Tensor {
-    let half = g.constant_with_scalar(0.5, scalar());
-    let one = g.constant_with_scalar(1.0, scalar());
-    let coeff = g.constant_with_scalar(0.044715, scalar());
-    let sqrt_2pi = g.constant_with_scalar(0.797_884_6, scalar());
-    let x2 = g.multiplication(input, input);
-    let x3 = g.multiplication(x2, input);
-    let scaled_cube = g.multiplication(coeff, x3);
-    let inner = g.addition(input, scaled_cube);
-    let tanh_arg = g.multiplication(sqrt_2pi, inner);
-    let tanh_val = g.tanh(tanh_arg);
-    let one_plus = g.addition(one, tanh_val);
-    let half_x = g.multiplication(half, input);
-    g.multiplication(half_x, one_plus)
+    // Sigmoid GELU approximation: x * sigmoid(1.702 * x)
+    // 3 ops instead of 9 — much fewer graph nodes for ANE
+    let coeff = g.constant_with_scalar(1.702, scalar());
+    let scaled = g.multiplication(coeff, input);
+    let sig = g.sigmoid(scaled);
+    g.multiplication(input, sig)
 }
 
 // ─── Compile encoder layer ────────────────────────────────────────────────
