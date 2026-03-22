@@ -18,5 +18,8 @@ lint:
 	cd ane_kernel && $(CARGO) clippy --release -p ane-bench -- -D warnings
 	cd ane_kernel && $(CARGO) clippy --release --examples -p ane
 
+bench-coreml:
+	python3 benchmark_coreml.py
+
 clean:
 	cd ane_kernel && $(CARGO) clean
