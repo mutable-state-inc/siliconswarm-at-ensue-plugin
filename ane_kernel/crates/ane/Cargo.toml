@@ -18,6 +18,10 @@ crate-type = ["cdylib", "rlib"]
 name = "distilbert_bench"
 path = "examples/distilbert_bench.rs"
 
+[[example]]
+name = "distilbert_verify"
+path = "examples/distilbert_verify.rs"
+
 [dependencies]
 thiserror.workspace = true
 objc2.workspace = true

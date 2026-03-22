@@ -10,6 +10,7 @@ use ane::{Executable, Graph, NSQualityOfService, Shape, TensorData};
 use half::{bf16, f16};
 use hf_hub::api::sync::ApiBuilder;
 use safetensors::{Dtype, SafeTensors};
+use tokenizers::Tokenizer;
 
 const REPO_ID: &str = "distilbert-base-uncased-finetuned-sst-2-english";
 const SEQ_LEN: usize = 128;
@@ -136,88 +137,82 @@ fn gelu(g: &mut Graph, input: ane::Tensor) -> ane::Tensor {
 
 /// Full encoder layer: LayerNorm + attention + residual + LayerNorm + FFN + residual
 /// All in one ANE graph — maximizes ops per dispatch.
+/// DistilBERT encoder layer — POST-LayerNorm architecture:
+/// Attention(x) + x → LayerNorm → FFN → + → LayerNorm → output
 fn compile_encoder_layer(w: &LayerWeights) -> Executable {
     let mut g = Graph::new();
     let x = g.placeholder(Shape::spatial(DIM, 1, SEQ_LEN));
 
-    // Self-attention LayerNorm
-    let normed = layer_norm(&mut g, x, &w.sa_ln_w, &w.sa_ln_b, DIM, 1e-12);
-
-    // Q, K, V projections
-    let q = g.inner_product(normed, &w.q_w, DIM, DIM);
+    // Q, K, V projections (from raw input, NOT from LayerNorm — post-norm architecture)
+    let q = g.inner_product(x, &w.q_w, DIM, DIM);
     let q_b = g.constant(&w.q_b, ch(DIM));
     let q = g.addition(q, q_b);
-    let k = g.inner_product(normed, &w.k_w, DIM, DIM);
+    let k = g.inner_product(x, &w.k_w, DIM, DIM);
     let k_b = g.constant(&w.k_b, ch(DIM));
     let k = g.addition(k, k_b);
-    let v = g.inner_product(normed, &w.v_w, DIM, DIM);
+    let v = g.inner_product(x, &w.v_w, DIM, DIM);
     let v_b = g.constant(&w.v_b, ch(DIM));
     let v = g.addition(v, v_b);
 
-    // Reshape to multi-head: [1, DIM, 1, SEQ] → [1, NUM_HEADS, HEAD_DIM, SEQ]
     let q = g.reshape(q, Shape { batch: 1, channels: NUM_HEADS, height: HEAD_DIM, width: SEQ_LEN });
     let k = g.reshape(k, Shape { batch: 1, channels: NUM_HEADS, height: HEAD_DIM, width: SEQ_LEN });
     let v = g.reshape(v, Shape { batch: 1, channels: NUM_HEADS, height: HEAD_DIM, width: SEQ_LEN });
-
-    // Transpose for attention: [1, heads, SEQ, HEAD_DIM]
     let hw = [0, 1, 3, 2];
     let q = g.transpose(q, hw);
     let k = g.transpose(k, hw);
     let v = g.transpose(v, hw);
 
-    // Attention: Q @ K^T / sqrt(d) → softmax → @ V
     let scale = g.constant_with_scalar(1.0 / (HEAD_DIM as f32).sqrt(), scalar());
     let raw_scores = g.matrix_multiplication(q, k, false, true);
     let scores = g.multiplication(raw_scores, scale);
-    // No causal mask needed — encoder attends to all positions
     let probs = g.soft_max(scores, -1);
     let attn_raw = g.matrix_multiplication(probs, v, false, false);
-
-    // Back: [1, heads, SEQ, HEAD_DIM] → [1, heads, HEAD_DIM, SEQ] → [1, DIM, 1, SEQ]
     let attn = g.transpose(attn_raw, hw);
     let attn = g.reshape(attn, Shape::spatial(DIM, 1, SEQ_LEN));
 
-    // Output projection + residual
+    // Output projection
     let o = g.inner_product(attn, &w.out_w, DIM, DIM);
     let o_b = g.constant(&w.out_b, ch(DIM));
     let o = g.addition(o, o_b);
-    let h = g.addition(o, x); // residual
 
-    // FFN LayerNorm
-    let normed2 = layer_norm(&mut g, h, &w.ffn_ln_w, &w.ffn_ln_b, DIM, 1e-12);
+    // POST-norm: residual THEN LayerNorm
+    let sa_out = g.addition(o, x);
+    let sa_normed = layer_norm(&mut g, sa_out, &w.sa_ln_w, &w.sa_ln_b, DIM, 1e-12);
 
-    // FFN: 768 → 3072 → GELU → 768
-    let fc1 = g.inner_product(normed2, &w.ffn1_w, DIM, FFN_DIM);
+    // FFN
+    let fc1 = g.inner_product(sa_normed, &w.ffn1_w, DIM, FFN_DIM);
     let fc1_b = g.constant(&w.ffn1_b, ch(FFN_DIM));
     let fc1 = g.addition(fc1, fc1_b);
     let fc1 = gelu(&mut g, fc1);
     let fc2 = g.inner_product(fc1, &w.ffn2_w, FFN_DIM, DIM);
     let fc2_b = g.constant(&w.ffn2_b, ch(DIM));
     let ffn_out = g.addition(fc2, fc2_b);
-    let _ = g.addition(ffn_out, h); // residual
+
+    // POST-norm: residual THEN LayerNorm
+    let ffn_res = g.addition(ffn_out, sa_normed);
+    let _ = layer_norm(&mut g, ffn_res, &w.ffn_ln_w, &w.ffn_ln_b, DIM, 1e-12);
 
     g.compile(NSQualityOfService::UserInteractive).expect("encoder layer compile")
 }
 
-/// Two encoder layers fused into one ANE graph — halves dispatch count.
+/// Two POST-norm encoder layers fused into one ANE graph.
 fn compile_fused_two_layers(w0: &LayerWeights, w1: &LayerWeights) -> Result<Executable, ane::Error> {
     let mut g = Graph::new();
     let x = g.placeholder(Shape::spatial(DIM, 1, SEQ_LEN));
+    let hw = [0, 1, 3, 2];
+    let scale = g.constant_with_scalar(1.0 / (HEAD_DIM as f32).sqrt(), scalar());
 
-    // === Layer 0 ===
-    let normed = layer_norm(&mut g, x, &w0.sa_ln_w, &w0.sa_ln_b, DIM, 1e-12);
-    let q = g.inner_product(normed, &w0.q_w, DIM, DIM);
+    // === Layer 0 (POST-norm) ===
+    let q = g.inner_product(x, &w0.q_w, DIM, DIM);
     let q_b = g.constant(&w0.q_b, ch(DIM)); let q = g.addition(q, q_b);
-    let k = g.inner_product(normed, &w0.k_w, DIM, DIM);
+    let k = g.inner_product(x, &w0.k_w, DIM, DIM);
     let k_b = g.constant(&w0.k_b, ch(DIM)); let k = g.addition(k, k_b);
-    let v = g.inner_product(normed, &w0.v_w, DIM, DIM);
+    let v = g.inner_product(x, &w0.v_w, DIM, DIM);
     let v_b = g.constant(&w0.v_b, ch(DIM)); let v = g.addition(v, v_b);
     let q = g.reshape(q, Shape { batch: 1, channels: NUM_HEADS, height: HEAD_DIM, width: SEQ_LEN });
     let k = g.reshape(k, Shape { batch: 1, channels: NUM_HEADS, height: HEAD_DIM, width: SEQ_LEN });
     let v = g.reshape(v, Shape { batch: 1, channels: NUM_HEADS, height: HEAD_DIM, width: SEQ_LEN });
-    let hw = [0, 1, 3, 2];
     let q = g.transpose(q, hw); let k = g.transpose(k, hw); let v = g.transpose(v, hw);
-    let scale = g.constant_with_scalar(1.0 / (HEAD_DIM as f32).sqrt(), scalar());
     let raw = g.matrix_multiplication(q, k, false, true);
     let scores = g.multiplication(raw, scale);
     let probs = g.soft_max(scores, -1);
@@ -226,22 +221,22 @@ fn compile_fused_two_layers(w0: &LayerWeights, w1: &LayerWeights) -> Result<Exec
     let attn = g.reshape(attn, Shape::spatial(DIM, 1, SEQ_LEN));
     let o = g.inner_product(attn, &w0.out_w, DIM, DIM);
     let o_b = g.constant(&w0.out_b, ch(DIM)); let o = g.addition(o, o_b);
-    let h = g.addition(o, x);
-    let normed2 = layer_norm(&mut g, h, &w0.ffn_ln_w, &w0.ffn_ln_b, DIM, 1e-12);
-    let fc1 = g.inner_product(normed2, &w0.ffn1_w, DIM, FFN_DIM);
+    let sa0 = g.addition(o, x);
+    let sa0 = layer_norm(&mut g, sa0, &w0.sa_ln_w, &w0.sa_ln_b, DIM, 1e-12);
+    let fc1 = g.inner_product(sa0, &w0.ffn1_w, DIM, FFN_DIM);
     let fc1_b = g.constant(&w0.ffn1_b, ch(FFN_DIM)); let fc1 = g.addition(fc1, fc1_b);
     let fc1 = gelu(&mut g, fc1);
     let fc2 = g.inner_product(fc1, &w0.ffn2_w, FFN_DIM, DIM);
     let fc2_b = g.constant(&w0.ffn2_b, ch(DIM)); let fc2 = g.addition(fc2, fc2_b);
-    let x1 = g.addition(fc2, h);
+    let x1 = g.addition(fc2, sa0);
+    let x1 = layer_norm(&mut g, x1, &w0.ffn_ln_w, &w0.ffn_ln_b, DIM, 1e-12);
 
-    // === Layer 1 ===
-    let normed = layer_norm(&mut g, x1, &w1.sa_ln_w, &w1.sa_ln_b, DIM, 1e-12);
-    let q = g.inner_product(normed, &w1.q_w, DIM, DIM);
+    // === Layer 1 (POST-norm) ===
+    let q = g.inner_product(x1, &w1.q_w, DIM, DIM);
     let q_b = g.constant(&w1.q_b, ch(DIM)); let q = g.addition(q, q_b);
-    let k = g.inner_product(normed, &w1.k_w, DIM, DIM);
+    let k = g.inner_product(x1, &w1.k_w, DIM, DIM);
     let k_b = g.constant(&w1.k_b, ch(DIM)); let k = g.addition(k, k_b);
-    let v = g.inner_product(normed, &w1.v_w, DIM, DIM);
+    let v = g.inner_product(x1, &w1.v_w, DIM, DIM);
     let v_b = g.constant(&w1.v_b, ch(DIM)); let v = g.addition(v, v_b);
     let q = g.reshape(q, Shape { batch: 1, channels: NUM_HEADS, height: HEAD_DIM, width: SEQ_LEN });
     let k = g.reshape(k, Shape { batch: 1, channels: NUM_HEADS, height: HEAD_DIM, width: SEQ_LEN });
@@ -255,14 +250,15 @@ fn compile_fused_two_layers(w0: &LayerWeights, w1: &LayerWeights) -> Result<Exec
     let attn = g.reshape(attn, Shape::spatial(DIM, 1, SEQ_LEN));
     let o = g.inner_product(attn, &w1.out_w, DIM, DIM);
     let o_b = g.constant(&w1.out_b, ch(DIM)); let o = g.addition(o, o_b);
-    let h = g.addition(o, x1);
-    let normed2 = layer_norm(&mut g, h, &w1.ffn_ln_w, &w1.ffn_ln_b, DIM, 1e-12);
-    let fc1 = g.inner_product(normed2, &w1.ffn1_w, DIM, FFN_DIM);
+    let sa1 = g.addition(o, x1);
+    let sa1 = layer_norm(&mut g, sa1, &w1.sa_ln_w, &w1.sa_ln_b, DIM, 1e-12);
+    let fc1 = g.inner_product(sa1, &w1.ffn1_w, DIM, FFN_DIM);
     let fc1_b = g.constant(&w1.ffn1_b, ch(FFN_DIM)); let fc1 = g.addition(fc1, fc1_b);
     let fc1 = gelu(&mut g, fc1);
     let fc2 = g.inner_product(fc1, &w1.ffn2_w, FFN_DIM, DIM);
     let fc2_b = g.constant(&w1.ffn2_b, ch(DIM)); let fc2 = g.addition(fc2, fc2_b);
-    let _ = g.addition(fc2, h);
+    let out = g.addition(fc2, sa1);
+    let _ = layer_norm(&mut g, out, &w1.ffn_ln_w, &w1.ffn_ln_b, DIM, 1e-12);
 
     g.compile(NSQualityOfService::UserInteractive)
 }
@@ -287,6 +283,26 @@ fn compile_classifier(w: &ModelWeights) -> Executable {
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────
+
+fn run_inference(
+    layer_exes: &[Executable], cls_exe: &Executable,
+    hidden_a: &TensorData, hidden_b: &TensorData, cls_out: &TensorData,
+) {
+    for (i, exe) in layer_exes.iter().enumerate() {
+        let (src, dst) = if i % 2 == 0 { (hidden_a, hidden_b) } else { (hidden_b, hidden_a) };
+        exe.run(&[src], &[dst]).unwrap();
+    }
+    let final_h = if layer_exes.len() % 2 == 0 { hidden_a } else { hidden_b };
+    cls_exe.run(&[final_h], &[cls_out]).unwrap();
+}
+
+fn classify(cls_out: &TensorData) -> (f32, f32, &'static str) {
+    let out = cls_out.as_f32_slice();
+    let neg = out[0];
+    let pos = out[1 * SEQ_LEN];
+    let label = if pos > neg { "POSITIVE" } else { "NEGATIVE" };
+    (neg, pos, label)
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("═══════════════════════════════════════════════════════");
@@ -366,50 +382,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // === Forward pass (verify it works) ===
-    embed_and_norm(&hidden_a);
-    for (i, exe) in layer_exes.iter().enumerate() {
-        let (src, dst) = if i % 2 == 0 { (&hidden_a, &hidden_b) } else { (&hidden_b, &hidden_a) };
-        exe.run(&[src], &[dst]).unwrap();
-    }
-    let final_hidden = if NUM_LAYERS % 2 == 0 { &hidden_a } else { &hidden_b };
-    cls_exe.run(&[final_hidden], &[&cls_out]).unwrap();
+    // Download tokenizer
+    let tok_path = repo.get("tokenizer.json").or_else(|_| {
+        api.model("distilbert-base-uncased".to_string()).get("tokenizer.json")
+    })?;
+    let tokenizer = Tokenizer::from_file(&tok_path).map_err(|e| format!("tokenizer: {e}"))?;
 
-    // Read classification result
-    {
-        let out = cls_out.as_f32_slice();
-        let neg = out[0]; // class 0 at position 0
-        let pos = out[1 * SEQ_LEN]; // class 1 at position 0
-        eprintln!("  Verify: negative={neg:.3}, positive={pos:.3}");
-    }
+    // Helper: tokenize and embed a sentence
+    let embed_sentence = |text: &str, hidden: &TensorData| {
+        let enc = tokenizer.encode(text, true).expect("encode");
+        let ids = enc.get_ids();
+        let len = ids.len().min(SEQ_LEN);
+        let mut surf = hidden.as_f32_slice_mut();
+        surf.fill(0.0);
+        for pos in 0..SEQ_LEN {
+            let tok = if pos < len { ids[pos] as usize } else { 0 }; // pad with 0
+            for c in 0..DIM {
+                surf[c * SEQ_LEN + pos] =
+                    weights.word_emb[tok * DIM + c] + weights.pos_emb[pos * DIM + c];
+            }
+        }
+        // Embedding LayerNorm
+        for s in 0..SEQ_LEN {
+            let mut mean = 0f32;
+            for c in 0..DIM { mean += surf[c * SEQ_LEN + s]; }
+            mean /= DIM as f32;
+            let mut var = 0f32;
+            for c in 0..DIM { let d = surf[c * SEQ_LEN + s] - mean; var += d * d; }
+            var /= DIM as f32;
+            let rstd = 1.0 / (var + 1e-12_f32).sqrt();
+            for c in 0..DIM {
+                surf[c * SEQ_LEN + s] = (surf[c * SEQ_LEN + s] - mean) * rstd
+                    * weights.emb_ln_w[c] + weights.emb_ln_b[c];
+            }
+        }
+    };
+
+    // === Quick sanity check ===
+    embed_sentence("I love this movie!", &hidden_a);
+    run_inference(&layer_exes, &cls_exe, &hidden_a, &hidden_b, &cls_out);
+    let (neg, pos, label) = classify(&cls_out);
+    eprintln!("  Sanity: \"I love this movie!\" → {label} (neg={neg:.2}, pos={pos:.2})");
 
     // === Benchmark: ANE inference latency ===
     eprintln!("\n  Benchmarking (1000 iterations)...");
 
-    // Warmup
+    // Warmup with a real sentence
+    embed_sentence("This is a test sentence for warmup.", &hidden_a);
     for _ in 0..50 {
-        embed_and_norm(&hidden_a);
-        for (i, exe) in layer_exes.iter().enumerate() {
-            let (src, dst) = if i % 2 == 0 { (&hidden_a, &hidden_b) } else { (&hidden_b, &hidden_a) };
-            exe.run(&[src], &[dst]).unwrap();
-        }
-        let fh = if NUM_LAYERS % 2 == 0 { &hidden_a } else { &hidden_b };
-        cls_exe.run(&[fh], &[&cls_out]).unwrap();
+        run_inference(&layer_exes, &cls_exe, &hidden_a, &hidden_b, &cls_out);
     }
 
-    // Timed runs
+    // Timed runs (embedding is pre-computed, we time only the ANE forward pass)
     let mut times = Vec::with_capacity(1000);
     for _ in 0..1000 {
-        embed_and_norm(&hidden_a);
-
         let start = Instant::now();
-        // 6 encoder layers + classifier head
-        for (i, exe) in layer_exes.iter().enumerate() {
-            let (src, dst) = if i % 2 == 0 { (&hidden_a, &hidden_b) } else { (&hidden_b, &hidden_a) };
-            exe.run(&[src], &[dst]).unwrap();
-        }
-        let fh = if NUM_LAYERS % 2 == 0 { &hidden_a } else { &hidden_b };
-        cls_exe.run(&[fh], &[&cls_out]).unwrap();
+        run_inference(&layer_exes, &cls_exe, &hidden_a, &hidden_b, &cls_out);
         times.push(start.elapsed().as_micros() as f64 / 1000.0);
     }
 
