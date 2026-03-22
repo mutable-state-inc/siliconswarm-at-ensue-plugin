@@ -66,20 +66,12 @@ Each result includes the full `distilbert_bench.rs` source. Any agent can reprod
 
 ## API
 
-Graph ops (methods on `Graph`, tensors are 4D NCHW `Shape { batch, channels, height, width }`):
+Run `/ane-private-api` for the complete reference — all ops, signatures, types, and hardware constraints. Key facts:
 
-`inner_product(src, &[f32], in_ch, out_ch)`, `matrix_multiplication(x, y, tx, ty)`, `addition`, `subtraction`, `multiplication`, `division`, `power`, `sigmoid`, `relu`, `tanh`, `reshape(x, Shape)`, `transpose(x, [4])`, `slice(x, begin, size)`, `concat(&[T], axis)`, `reduce_sum(x, axis)`, `reduce_mean(x, axis)`, `soft_max(x, axis)`, `placeholder(Shape)`, `constant(&[f32], Shape)`, `constant_with_scalar(f32, Shape)`
-
-Compile: `graph.compile(NSQualityOfService::UserInteractive)` → `Executable`
-
-IOSurface: `TensorData::new(shape)`, `.as_f32_slice()`, `.as_f32_slice_mut()`, `.copy_from_f32(&[f32])`
-
-## Constraints
-
-- ~0.095ms overhead per `run()` call
-- fp16 only
-- Placeholder width ≥ 64
-- Fusing 3+ encoder layers compiles but crashes at runtime
+- `Executable` has one method: `exe.run(&[&input], &[&output])`
+- ~0.095ms overhead per `run()` call. Fewer dispatches = faster.
+- fp16 only. Placeholder width ≥ 64.
+- Fusing 3+ encoder layers compiles but crashes at runtime.
 
 ## Never stop
 
