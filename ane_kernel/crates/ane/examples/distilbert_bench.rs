@@ -145,6 +145,7 @@ fn layer_norm(
     let b = g.constant(bias, ch(d));
     let eps_c = g.constant_with_scalar(eps as f32, scalar());
     let inv_d = g.constant_with_scalar(1.0 / d as f32, scalar());
+    let neg_half = g.constant_with_scalar(-0.5, scalar());
     let neg_one = g.constant_with_scalar(-1.0, scalar());
     let sum = g.reduce_sum(input, 1);
     let mean = g.multiplication(sum, inv_d);
@@ -154,7 +155,7 @@ fn layer_norm(
     let var_sum = g.reduce_sum(sq, 1);
     let var = g.multiplication(var_sum, inv_d);
     let var_eps = g.addition(var, eps_c);
-    let rstd = g.reciprocal_square_root(var_eps);
+    let rstd = g.power(var_eps, neg_half);
     let normed = g.multiplication(centered, rstd);
     let scaled = g.multiplication(normed, w);
     g.addition(scaled, b)
