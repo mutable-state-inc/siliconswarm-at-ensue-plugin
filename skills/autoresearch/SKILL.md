@@ -57,8 +57,8 @@ LOOP FOREVER:
   3. Hypothesize — what and why
   4. Edit
   5. make build
-  6. make verify — revert if fails
-  7. make bench — record median
+  6. make verify — check output for "PASSED". If "FAILED", revert immediately. Do NOT proceed to bench.
+  7. make bench — only if verify PASSED
   8. PUBLISH — publish + insight + hypothesis (all three, every time)
   9. Keep (commit) or revert
 ```

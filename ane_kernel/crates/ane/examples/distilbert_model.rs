@@ -125,31 +125,38 @@ fn sc(d: usize) -> Shape {
     }
 }
 
-pub fn layer_norm(g: &mut Graph, x: ane::Tensor, w: &[f32], b: &[f32], d: usize) -> ane::Tensor {
+pub fn layer_norm(
+    g: &mut Graph, x: ane::Tensor, w: &[f32], b: &[f32], d: usize, nhalf: ane::Tensor,
+) -> ane::Tensor {
     let wt = g.constant(w, sc(d));
     let bt = g.constant(b, sc(d));
-    let eps = g.constant_with_scalar(1e-12, s1());
     let mean = g.reduce_mean(x, 1);
     let centered = g.subtraction(x, mean);
     let sq = g.multiplication(centered, centered);
     let var = g.reduce_mean(sq, 1);
-    let var_eps = g.addition(var, eps);
-    let rstd = g.reciprocal_square_root(var_eps);
+    let var_eps = g.linear(var, 1.0, 1e-12); // var + eps via linear (saves eps constant)
+    let rstd = g.power(var_eps, nhalf);
     let normed = g.multiplication(centered, rstd);
     let scaled = g.multiplication(normed, wt);
     g.addition(scaled, bt)
 }
 
 pub fn gelu(g: &mut Graph, x: ane::Tensor) -> ane::Tensor {
-    // Sigmoid GELU approximation: x * sigmoid(1.702 * x) — 3 ops vs 8
-    let scaled = g.linear(x, 1.702, 0.0);
-    let sig = g.sigmoid(scaled);
-    g.multiplication(x, sig)
+    // Optimized GELU: 6 ops, 0 constants (was 8 ops + 2 constants)
+    // arg = s * x * (1 + c*x^2) where s=0.797884, c=0.044715
+    let x2 = g.multiplication(x, x);
+    let sc_x2_plus_s = g.linear(x2, 0.044715 * 0.797_884_6, 0.797_884_6); // s*c*x2 + s = s*(1+c*x2)
+    let arg = g.multiplication(x, sc_x2_plus_s); // x * s*(1+c*x2) = s*x*(1+c*x2)
+    let th = g.tanh(arg);
+    let coeff = g.linear(th, 0.5, 0.5); // 0.5*(1+tanh)
+    g.multiplication(x, coeff)
 }
 
 // ─── Layer graph builder ──────────────────────────────────────────────────
 
-fn add_layer_to_graph(g: &mut Graph, x: ane::Tensor, mask: ane::Tensor, w: &LW) -> ane::Tensor {
+fn add_layer_to_graph(
+    g: &mut Graph, x: ane::Tensor, mask: ane::Tensor, w: &LW, nhalf: ane::Tensor,
+) -> ane::Tensor {
     // Fused QKV projection with pre-scaled Q weights (eliminates runtime scale multiply)
     let q_scale = 1.0 / (HD as f32).sqrt();
     let mut qkv_w = Vec::with_capacity(3 * DIM * DIM);
@@ -181,8 +188,7 @@ fn add_layer_to_graph(g: &mut Graph, x: ane::Tensor, mask: ane::Tensor, w: &LW) 
     let raw = g.matrix_multiplication(q, k, true, false); // Q^T × K = [SEQ,HD]×[HD,SEQ]=[SEQ,SEQ]
     let masked = g.addition(raw, mask);
     let probs = g.soft_max(masked, -1);
-    let attn = g.matrix_multiplication(probs, v, false, true); // probs × V^T = [SEQ,SEQ]×[SEQ,HD]=[SEQ,HD]
-    let attn = g.transpose(attn, [0, 1, 3, 2]); // [HEADS,SEQ,HD] → [HEADS,HD,SEQ]
+    let attn = g.matrix_multiplication(v, probs, false, true); // V × probs^T = [HD,SEQ] — no transpose needed
     let attn = g.reshape(attn, Shape::spatial(DIM, 1, SEQ));
 
     // Output projection + residual + LayerNorm (POST-norm)
@@ -190,7 +196,7 @@ fn add_layer_to_graph(g: &mut Graph, x: ane::Tensor, mask: ane::Tensor, w: &LW) 
     let o_bias = g.constant(&w.out_b, sc(DIM));
     let o = g.addition(o_proj, o_bias);
     let h = g.addition(o, x);
-    let h = layer_norm(g, h, &w.sa_ln_w, &w.sa_ln_b, DIM);
+    let h = layer_norm(g, h, &w.sa_ln_w, &w.sa_ln_b, DIM, nhalf);
 
     // FFN + residual + LayerNorm (POST-norm)
     let fc1_proj = g.inner_product(h, &w.ffn1_w, DIM, FFN);
@@ -201,7 +207,7 @@ fn add_layer_to_graph(g: &mut Graph, x: ane::Tensor, mask: ane::Tensor, w: &LW) 
     let fc2_bias = g.constant(&w.ffn2_b, sc(DIM));
     let fc2 = g.addition(fc2_proj, fc2_bias);
     let out = g.addition(fc2, h);
-    layer_norm(g, out, &w.ffn_ln_w, &w.ffn_ln_b, DIM)
+    layer_norm(g, out, &w.ffn_ln_w, &w.ffn_ln_b, DIM, nhalf)
 }
 
 fn compile_two_layers(w0: &LW, w1: &LW) -> Executable {
@@ -213,8 +219,9 @@ fn compile_two_layers(w0: &LW, w1: &LW) -> Executable {
         height: SEQ,
         width: SEQ,
     });
-    let h = add_layer_to_graph(&mut g, x, mask, w0);
-    let _ = add_layer_to_graph(&mut g, h, mask, w1);
+    let nhalf = g.constant_with_scalar(-0.5, s1()); // shared across all LayerNorms
+    let h = add_layer_to_graph(&mut g, x, mask, w0, nhalf);
+    let _ = add_layer_to_graph(&mut g, h, mask, w1, nhalf);
     g.compile(NSQualityOfService::UserInteractive)
         .expect("two-layer compile")
 }
@@ -235,8 +242,9 @@ fn compile_two_layers_with_cls(
         height: SEQ,
         width: SEQ,
     });
-    let h = add_layer_to_graph(&mut g, x, mask, w0);
-    let h = add_layer_to_graph(&mut g, h, mask, w1);
+    let nhalf = g.constant_with_scalar(-0.5, s1());
+    let h = add_layer_to_graph(&mut g, x, mask, w0, nhalf);
+    let h = add_layer_to_graph(&mut g, h, mask, w1, nhalf);
     // Classifier head
     let pre_proj = g.inner_product(h, pre_w, DIM, DIM);
     let pre_bias = g.constant(pre_b, sc(DIM));
@@ -247,6 +255,78 @@ fn compile_two_layers_with_cls(
     let _ = g.addition(cls_proj, cls_bt);
     g.compile(NSQualityOfService::UserInteractive)
         .expect("two-layer+cls compile")
+}
+
+fn compile_three_layers(w0: &LW, w1: &LW, w2: &LW) -> Executable {
+    let mut g = Graph::new();
+    let x = g.placeholder(Shape::spatial(DIM, 1, SEQ));
+    let mask = g.placeholder(Shape {
+        batch: 1,
+        channels: 1,
+        height: SEQ,
+        width: SEQ,
+    });
+    let nhalf = g.constant_with_scalar(-0.5, s1());
+    let h = add_layer_to_graph(&mut g, x, mask, w0, nhalf);
+    let h = add_layer_to_graph(&mut g, h, mask, w1, nhalf);
+    let _ = add_layer_to_graph(&mut g, h, mask, w2, nhalf);
+    g.compile(NSQualityOfService::UserInteractive)
+        .expect("three-layer compile")
+}
+
+fn compile_three_layers_with_cls(
+    w0: &LW, w1: &LW, w2: &LW,
+    pre_w: &[f32], pre_b: &[f32], cls_w: &[f32], cls_b: &[f32],
+) -> Executable {
+    let mut g = Graph::new();
+    let x = g.placeholder(Shape::spatial(DIM, 1, SEQ));
+    let mask = g.placeholder(Shape {
+        batch: 1,
+        channels: 1,
+        height: SEQ,
+        width: SEQ,
+    });
+    let nhalf = g.constant_with_scalar(-0.5, s1());
+    let h = add_layer_to_graph(&mut g, x, mask, w0, nhalf);
+    let h = add_layer_to_graph(&mut g, h, mask, w1, nhalf);
+    let h = add_layer_to_graph(&mut g, h, mask, w2, nhalf);
+    let pre_proj = g.inner_product(h, pre_w, DIM, DIM);
+    let pre_bias = g.constant(pre_b, sc(DIM));
+    let pre = g.addition(pre_proj, pre_bias);
+    let pre = g.relu(pre);
+    let cls_proj = g.inner_product(pre, cls_w, DIM, CLS);
+    let cls_bt = g.constant(cls_b, sc(CLS));
+    let _ = g.addition(cls_proj, cls_bt);
+    g.compile(NSQualityOfService::UserInteractive)
+        .expect("three-layer+cls compile")
+}
+
+fn compile_six_layers_with_cls(
+    layers: &[LW],
+    pre_w: &[f32], pre_b: &[f32], cls_w: &[f32], cls_b: &[f32],
+) -> Executable {
+    let mut g = Graph::new();
+    let x = g.placeholder(Shape::spatial(DIM, 1, SEQ));
+    let mask = g.placeholder(Shape {
+        batch: 1,
+        channels: 1,
+        height: SEQ,
+        width: SEQ,
+    });
+    let nhalf = g.constant_with_scalar(-0.5, s1());
+    let mut h = add_layer_to_graph(&mut g, x, mask, &layers[0], nhalf);
+    for i in 1..LAYERS {
+        h = add_layer_to_graph(&mut g, h, mask, &layers[i], nhalf);
+    }
+    let pre_proj = g.inner_product(h, pre_w, DIM, DIM);
+    let pre_bias = g.constant(pre_b, sc(DIM));
+    let pre = g.addition(pre_proj, pre_bias);
+    let pre = g.relu(pre);
+    let cls_proj = g.inner_product(pre, cls_w, DIM, CLS);
+    let cls_bt = g.constant(cls_b, sc(CLS));
+    let _ = g.addition(cls_proj, cls_bt);
+    g.compile(NSQualityOfService::UserInteractive)
+        .expect("six-layer+cls compile")
 }
 
 fn clone_lw(w: &LW) -> LW {
@@ -273,31 +353,33 @@ fn clone_lw(w: &LW) -> LW {
 // ─── Fused layer cache ────────────────────────────────────────────────────
 
 thread_local! {
-    static FUSED_PAIR_EXES: RefCell<Vec<Executable>> = RefCell::new(Vec::new());
-    static PENDING_LAYER: RefCell<Option<LW>> = RefCell::new(None);
+    static FUSED_TRIPLE_EXES: RefCell<Vec<Executable>> = RefCell::new(Vec::new());
+    static PENDING_LAYERS: RefCell<Vec<LW>> = RefCell::new(Vec::new());
     static ALL_LAYER_WEIGHTS: RefCell<Vec<LW>> = RefCell::new(Vec::new());
     static CLS_FUSED: RefCell<bool> = RefCell::new(false);
 }
 
 // ─── Compile ───────────────────────────────────────────────────────────────
 
-/// Compiles layers, fusing pairs of 2 layers into single ANE dispatches.
+/// Compiles layers, fusing triples of 3 layers into single ANE dispatches.
 pub fn compile_layer(w: &LW) -> Executable {
-    // Store weights for potential classifier fusion later
     ALL_LAYER_WEIGHTS.with(|alw| alw.borrow_mut().push(clone_lw(w)));
 
-    // Build fused 2-layer executables via thread-local state
-    let fused = PENDING_LAYER.with(|pl| {
+    // Build fused 3-layer executables via thread-local state
+    let fused = PENDING_LAYERS.with(|pl| {
         let mut pending = pl.borrow_mut();
-        if let Some(prev) = pending.take() {
-            Some(compile_two_layers(&prev, w))
+        pending.push(clone_lw(w));
+        if pending.len() == 3 {
+            let w0 = pending.remove(0);
+            let w1 = pending.remove(0);
+            let w2 = pending.remove(0);
+            Some(compile_three_layers(&w0, &w1, &w2))
         } else {
-            *pending = Some(clone_lw(w));
             None
         }
     });
     if let Some(exe) = fused {
-        FUSED_PAIR_EXES.with(|f| f.borrow_mut().push(exe));
+        FUSED_TRIPLE_EXES.with(|f| f.borrow_mut().push(exe));
     }
 
     // Return pass-through executable (fused path is used at runtime)
@@ -316,21 +398,18 @@ pub fn compile_layer(w: &LW) -> Executable {
 }
 
 pub fn compile_classifier(mw: &MW) -> Executable {
-    // Try to fuse classifier into the last 2-layer pair (3 dispatches instead of 4)
+    // Fuse classifier into last 3-layer triple (2 dispatches total)
     ALL_LAYER_WEIGHTS.with(|alw| {
         let weights = alw.borrow();
         if weights.len() == LAYERS {
-            FUSED_PAIR_EXES.with(|f| {
+            FUSED_TRIPLE_EXES.with(|f| {
                 let mut fused = f.borrow_mut();
-                if fused.len() == LAYERS / 2 {
-                    // Recompile last pair with classifier fused in
-                    let fused_exe = compile_two_layers_with_cls(
+                if fused.len() == LAYERS / 3 {
+                    let fused_exe = compile_three_layers_with_cls(
+                        &weights[LAYERS - 3],
                         &weights[LAYERS - 2],
                         &weights[LAYERS - 1],
-                        &mw.pre_w,
-                        &mw.pre_b,
-                        &mw.cls_w,
-                        &mw.cls_b,
+                        &mw.pre_w, &mw.pre_b, &mw.cls_w, &mw.cls_b,
                     );
                     *fused.last_mut().unwrap() = fused_exe;
                     CLS_FUSED.with(|c| *c.borrow_mut() = true);
@@ -339,7 +418,6 @@ pub fn compile_classifier(mw: &MW) -> Executable {
         }
     });
 
-    // Return pass-through (classifier is fused into last pair at runtime)
     let mut g = Graph::new();
     let x = g.placeholder(Shape::spatial(DIM, 1, SEQ));
     let zero = g.constant_with_scalar(0.0, s1());
@@ -406,22 +484,27 @@ pub fn forward(
 ) {
     let cls_is_fused = CLS_FUSED.with(|c| *c.borrow());
 
-    let used_fused = FUSED_PAIR_EXES.with(|f| {
+    let used_fused = FUSED_TRIPLE_EXES.with(|f| {
         let fused = f.borrow();
-        if fused.len() == LAYERS / 2 {
-            let last_idx = fused.len() - 1;
-            for (i, exe) in fused.iter().enumerate() {
-                if i == last_idx && cls_is_fused {
-                    // Last pair has classifier fused — output to cls_out
-                    let src = if i % 2 == 0 { hidden_a } else { hidden_b };
-                    exe.run(&[src, mask], &[cls_out]).unwrap();
-                } else {
-                    let (src, dst) = if i % 2 == 0 {
-                        (hidden_a, hidden_b)
+        let n = fused.len();
+        if n >= 1 && n <= LAYERS / 3 {
+            if n == 1 && cls_is_fused {
+                // Single dispatch: all layers + classifier
+                fused[0].run(&[hidden_a, mask], &[cls_out]).unwrap();
+            } else {
+                let last_idx = n - 1;
+                for (i, exe) in fused.iter().enumerate() {
+                    if i == last_idx && cls_is_fused {
+                        let src = if i % 2 == 0 { hidden_a } else { hidden_b };
+                        exe.run(&[src, mask], &[cls_out]).unwrap();
                     } else {
-                        (hidden_b, hidden_a)
-                    };
-                    exe.run(&[src, mask], &[dst]).unwrap();
+                        let (src, dst) = if i % 2 == 0 {
+                            (hidden_a, hidden_b)
+                        } else {
+                            (hidden_b, hidden_a)
+                        };
+                        exe.run(&[src, mask], &[dst]).unwrap();
+                    }
                 }
             }
             true
@@ -440,7 +523,7 @@ pub fn forward(
         }
     }
     if !cls_is_fused {
-        let num = if used_fused { LAYERS / 2 } else { LAYERS };
+        let num = if used_fused { LAYERS / 3 } else { LAYERS };
         let final_h = if num % 2 == 0 { hidden_a } else { hidden_b };
         cls_exe.run(&[final_h], &[cls_out]).unwrap();
     }
