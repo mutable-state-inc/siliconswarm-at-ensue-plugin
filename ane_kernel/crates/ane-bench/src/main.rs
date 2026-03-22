@@ -190,7 +190,7 @@ fn cmd_baseline(chip: &str, coreml_ms: f64) {
 }
 
 fn cmd_publish(chip: &str, agent: &str, status: &str, median_ms: f64, description: &str) {
-    let source = std::fs::read_to_string("ane_kernel/crates/ane/examples/distilbert_bench.rs")
+    let source = std::fs::read_to_string("ane_kernel/crates/ane/examples/distilbert_model.rs")
         .unwrap_or_else(|_| "(source not found)".into());
     let slug = slugify(description);
     let hash = short_hash(&format!("{agent}{description}{}", chrono_now()));
