@@ -84,10 +84,11 @@ Each published result includes the full kernel source. Publish result, insight, 
 
 Run `/ane-private-api` for the complete reference — all ops, signatures, types, and hardware constraints. Key facts:
 
-- `Executable` has one method: `exe.run(&[&input], &[&output])`
+- `Executable` has one method: `exe.run(&[&input], &[&output])`. No variants.
 - ~0.095ms overhead per `run()` call. Fewer dispatches = faster.
-- fp16 only. Placeholder width ≥ 64.
+- All ANE compute is fp16. Placeholder width ≥ 64.
 - Fusing 3+ encoder layers compiles but crashes at runtime.
+- Verification requires ≥90% accuracy on SST-2 (872 examples). PyTorch fp16 gets 91%, CoreML on ANE gets 90.5%. The accuracy gap in our kernel is a bug, not an fp16 limitation.
 
 ## Never stop
 
