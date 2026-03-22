@@ -20,7 +20,7 @@ Optimize DistilBERT inference latency on Apple Neural Engine via the private API
 ```bash
 cd "${CLAUDE_SKILL_DIR}/../.."
 make build
-export PATH="${PATH}:$(pwd)/ane_kernel/target/release"
+export PATH="${PATH}:${CLAUDE_SKILL_DIR}/../../ane_kernel/target/release"
 ```
 
 `make build` builds everything including the `ane-bench` CLI. All commands use `make` or `ane-bench`. Do not call `cargo` directly.
