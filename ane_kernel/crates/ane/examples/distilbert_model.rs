@@ -4,6 +4,7 @@
 use ane::{Executable, Graph, NSQualityOfService, Shape, TensorData};
 use half::{bf16, f16};
 use safetensors::{Dtype, SafeTensors};
+use std::cell::RefCell;
 
 pub const SEQ: usize = 128;
 pub const DIM: usize = 768;
@@ -102,8 +103,6 @@ pub fn layer_norm(g: &mut Graph, x: ane::Tensor, w: &[f32], b: &[f32], d: usize)
 }
 
 pub fn gelu(g: &mut Graph, x: ane::Tensor) -> ane::Tensor {
-    let half = g.constant_with_scalar(0.5, s1());
-    let one = g.constant_with_scalar(1.0, s1());
     let c = g.constant_with_scalar(0.044715, s1());
     let s = g.constant_with_scalar(0.797_884_6, s1());
     let x2 = g.multiplication(x, x);
@@ -112,47 +111,38 @@ pub fn gelu(g: &mut Graph, x: ane::Tensor) -> ane::Tensor {
     let inner = g.addition(x, cx3);
     let arg = g.multiplication(s, inner);
     let th = g.tanh(arg);
-    let one_plus = g.addition(one, th);
-    let hx = g.multiplication(half, x);
-    g.multiplication(hx, one_plus)
+    let coeff = g.linear(th, 0.5, 0.5); // 0.5*tanh + 0.5 = 0.5*(1+tanh)
+    g.multiplication(x, coeff)
 }
 
-// ─── Compile ───────────────────────────────────────────────────────────────
+// ─── Layer graph builder ──────────────────────────────────────────────────
 
-/// Single encoder layer with attention mask. POST-LayerNorm.
-pub fn compile_layer(w: &LW) -> Executable {
-    let mut g = Graph::new();
-    let x = g.placeholder(Shape::spatial(DIM, 1, SEQ));
-    let mask = g.placeholder(Shape { batch: 1, channels: 1, height: SEQ, width: SEQ });
+fn add_layer_to_graph(g: &mut Graph, x: ane::Tensor, mask: ane::Tensor, w: &LW) -> ane::Tensor {
+    // Fused QKV projection with pre-scaled Q weights (eliminates runtime scale multiply)
+    let q_scale = 1.0 / (HD as f32).sqrt();
+    let mut qkv_w = Vec::with_capacity(3 * DIM * DIM);
+    qkv_w.extend(w.q_w.iter().map(|&x| x * q_scale));
+    qkv_w.extend_from_slice(&w.k_w);
+    qkv_w.extend_from_slice(&w.v_w);
+    let mut qkv_b = Vec::with_capacity(3 * DIM);
+    qkv_b.extend(w.q_b.iter().map(|&x| x * q_scale));
+    qkv_b.extend_from_slice(&w.k_b);
+    qkv_b.extend_from_slice(&w.v_b);
+    let qkv_proj = g.inner_product(x, &qkv_w, DIM, 3 * DIM);
+    let qkv_bias = g.constant(&qkv_b, sc(3 * DIM));
+    let qkv = g.addition(qkv_proj, qkv_bias);
+    // Reshape then slice: combine reshape+slice into fewer ops
+    let qkv = g.reshape(qkv, Shape { batch: 1, channels: 3 * HEADS, height: HD, width: SEQ });
+    let q = g.slice(qkv, [0, 0, 0, 0], [1, HEADS, HD, SEQ]);
+    let k = g.slice(qkv, [0, HEADS, 0, 0], [1, HEADS, HD, SEQ]);
+    let v = g.slice(qkv, [0, 2 * HEADS, 0, 0], [1, HEADS, HD, SEQ]);
 
-    // QKV
-    let q_proj = g.inner_product(x, &w.q_w, DIM, DIM);
-    let q_bias = g.constant(&w.q_b, sc(DIM));
-    let q = g.addition(q_proj, q_bias);
-    let k_proj = g.inner_product(x, &w.k_w, DIM, DIM);
-    let k_bias = g.constant(&w.k_b, sc(DIM));
-    let k = g.addition(k_proj, k_bias);
-    let v_proj = g.inner_product(x, &w.v_w, DIM, DIM);
-    let v_bias = g.constant(&w.v_b, sc(DIM));
-    let v = g.addition(v_proj, v_bias);
-
-    // Multi-head reshape + transpose
-    let q = g.reshape(q, Shape { batch: 1, channels: HEADS, height: HD, width: SEQ });
-    let k = g.reshape(k, Shape { batch: 1, channels: HEADS, height: HD, width: SEQ });
-    let v = g.reshape(v, Shape { batch: 1, channels: HEADS, height: HD, width: SEQ });
-    let hw = [0, 1, 3, 2];
-    let q = g.transpose(q, hw);
-    let k = g.transpose(k, hw);
-    let v = g.transpose(v, hw);
-
-    // Attention with mask
-    let scale = g.constant_with_scalar(1.0 / (HD as f32).sqrt(), s1());
-    let raw = g.matrix_multiplication(q, k, false, true);
-    let scores = g.multiplication(raw, scale);
-    let masked = g.addition(scores, mask);
+    // Attention with mask (scale pre-baked into Q weights, transposes in matmul flags)
+    let raw = g.matrix_multiplication(q, k, true, false);  // Q^T × K = [SEQ,HD]×[HD,SEQ]=[SEQ,SEQ]
+    let masked = g.addition(raw, mask);
     let probs = g.soft_max(masked, -1);
-    let attn = g.matrix_multiplication(probs, v, false, false);
-    let attn = g.transpose(attn, hw);
+    let attn = g.matrix_multiplication(probs, v, false, true);  // probs × V^T = [SEQ,SEQ]×[SEQ,HD]=[SEQ,HD]
+    let attn = g.transpose(attn, [0, 1, 3, 2]);  // [HEADS,SEQ,HD] → [HEADS,HD,SEQ]
     let attn = g.reshape(attn, Shape::spatial(DIM, 1, SEQ));
 
     // Output projection + residual + LayerNorm (POST-norm)
@@ -160,32 +150,124 @@ pub fn compile_layer(w: &LW) -> Executable {
     let o_bias = g.constant(&w.out_b, sc(DIM));
     let o = g.addition(o_proj, o_bias);
     let h = g.addition(o, x);
-    let h = layer_norm(&mut g, h, &w.sa_ln_w, &w.sa_ln_b, DIM);
+    let h = layer_norm(g, h, &w.sa_ln_w, &w.sa_ln_b, DIM);
 
     // FFN + residual + LayerNorm (POST-norm)
     let fc1_proj = g.inner_product(h, &w.ffn1_w, DIM, FFN);
     let fc1_bias = g.constant(&w.ffn1_b, sc(FFN));
     let fc1 = g.addition(fc1_proj, fc1_bias);
-    let fc1 = gelu(&mut g, fc1);
+    let fc1 = gelu(g, fc1);
     let fc2_proj = g.inner_product(fc1, &w.ffn2_w, FFN, DIM);
     let fc2_bias = g.constant(&w.ffn2_b, sc(DIM));
     let fc2 = g.addition(fc2_proj, fc2_bias);
     let out = g.addition(fc2, h);
-    let _ = layer_norm(&mut g, out, &w.ffn_ln_w, &w.ffn_ln_b, DIM);
+    layer_norm(g, out, &w.ffn_ln_w, &w.ffn_ln_b, DIM)
+}
 
-    g.compile(NSQualityOfService::UserInteractive).expect("layer compile")
+fn compile_two_layers(w0: &LW, w1: &LW) -> Executable {
+    let mut g = Graph::new();
+    let x = g.placeholder(Shape::spatial(DIM, 1, SEQ));
+    let mask = g.placeholder(Shape { batch: 1, channels: 1, height: SEQ, width: SEQ });
+    let h = add_layer_to_graph(&mut g, x, mask, w0);
+    let _ = add_layer_to_graph(&mut g, h, mask, w1);
+    g.compile(NSQualityOfService::UserInteractive).expect("two-layer compile")
+}
+
+fn compile_two_layers_with_cls(w0: &LW, w1: &LW,
+    pre_w: &[f32], pre_b: &[f32], cls_w: &[f32], cls_b: &[f32]) -> Executable {
+    let mut g = Graph::new();
+    let x = g.placeholder(Shape::spatial(DIM, 1, SEQ));
+    let mask = g.placeholder(Shape { batch: 1, channels: 1, height: SEQ, width: SEQ });
+    let h = add_layer_to_graph(&mut g, x, mask, w0);
+    let h = add_layer_to_graph(&mut g, h, mask, w1);
+    // Classifier head
+    let pre_proj = g.inner_product(h, pre_w, DIM, DIM);
+    let pre_bias = g.constant(pre_b, sc(DIM));
+    let pre = g.addition(pre_proj, pre_bias);
+    let pre = g.relu(pre);
+    let cls_proj = g.inner_product(pre, cls_w, DIM, CLS);
+    let cls_bt = g.constant(cls_b, sc(CLS));
+    let _ = g.addition(cls_proj, cls_bt);
+    g.compile(NSQualityOfService::UserInteractive).expect("two-layer+cls compile")
+}
+
+fn clone_lw(w: &LW) -> LW {
+    LW {
+        sa_ln_w: w.sa_ln_w.clone(), sa_ln_b: w.sa_ln_b.clone(),
+        q_w: w.q_w.clone(), q_b: w.q_b.clone(),
+        k_w: w.k_w.clone(), k_b: w.k_b.clone(),
+        v_w: w.v_w.clone(), v_b: w.v_b.clone(),
+        out_w: w.out_w.clone(), out_b: w.out_b.clone(),
+        ffn_ln_w: w.ffn_ln_w.clone(), ffn_ln_b: w.ffn_ln_b.clone(),
+        ffn1_w: w.ffn1_w.clone(), ffn1_b: w.ffn1_b.clone(),
+        ffn2_w: w.ffn2_w.clone(), ffn2_b: w.ffn2_b.clone(),
+    }
+}
+
+// ─── Fused layer cache ────────────────────────────────────────────────────
+
+thread_local! {
+    static FUSED_PAIR_EXES: RefCell<Vec<Executable>> = RefCell::new(Vec::new());
+    static PENDING_LAYER: RefCell<Option<LW>> = RefCell::new(None);
+    static ALL_LAYER_WEIGHTS: RefCell<Vec<LW>> = RefCell::new(Vec::new());
+    static CLS_FUSED: RefCell<bool> = RefCell::new(false);
+}
+
+// ─── Compile ───────────────────────────────────────────────────────────────
+
+/// Compiles layers, fusing pairs of 2 layers into single ANE dispatches.
+pub fn compile_layer(w: &LW) -> Executable {
+    // Store weights for potential classifier fusion later
+    ALL_LAYER_WEIGHTS.with(|alw| alw.borrow_mut().push(clone_lw(w)));
+
+    // Build fused 2-layer executables via thread-local state
+    let fused = PENDING_LAYER.with(|pl| {
+        let mut pending = pl.borrow_mut();
+        if let Some(prev) = pending.take() {
+            Some(compile_two_layers(&prev, w))
+        } else {
+            *pending = Some(clone_lw(w));
+            None
+        }
+    });
+    if let Some(exe) = fused {
+        FUSED_PAIR_EXES.with(|f| f.borrow_mut().push(exe));
+    }
+
+    // Return pass-through executable (fused path is used at runtime)
+    let mut g = Graph::new();
+    let x = g.placeholder(Shape::spatial(DIM, 1, SEQ));
+    let _mask = g.placeholder(Shape { batch: 1, channels: 1, height: SEQ, width: SEQ });
+    let zero = g.constant_with_scalar(0.0, s1());
+    let _ = g.addition(x, zero);
+    g.compile(NSQualityOfService::UserInteractive).expect("passthrough compile")
 }
 
 pub fn compile_classifier(mw: &MW) -> Executable {
+    // Try to fuse classifier into the last 2-layer pair (3 dispatches instead of 4)
+    ALL_LAYER_WEIGHTS.with(|alw| {
+        let weights = alw.borrow();
+        if weights.len() == LAYERS {
+            FUSED_PAIR_EXES.with(|f| {
+                let mut fused = f.borrow_mut();
+                if fused.len() == LAYERS / 2 {
+                    // Recompile last pair with classifier fused in
+                    let fused_exe = compile_two_layers_with_cls(
+                        &weights[LAYERS - 2], &weights[LAYERS - 1],
+                        &mw.pre_w, &mw.pre_b, &mw.cls_w, &mw.cls_b,
+                    );
+                    *fused.last_mut().unwrap() = fused_exe;
+                    CLS_FUSED.with(|c| *c.borrow_mut() = true);
+                }
+            });
+        }
+    });
+
+    // Return pass-through (classifier is fused into last pair at runtime)
     let mut g = Graph::new();
     let x = g.placeholder(Shape::spatial(DIM, 1, SEQ));
-    let pre_proj = g.inner_product(x, &mw.pre_w, DIM, DIM);
-    let pre_bias = g.constant(&mw.pre_b, sc(DIM));
-    let pre = g.addition(pre_proj, pre_bias);
-    let pre = g.relu(pre);
-    let cls_proj = g.inner_product(pre, &mw.cls_w, DIM, CLS);
-    let cls_bias = g.constant(&mw.cls_b, sc(CLS));
-    let _ = g.addition(cls_proj, cls_bias);
+    let zero = g.constant_with_scalar(0.0, s1());
+    let _ = g.addition(x, zero);
     g.compile(NSQualityOfService::UserInteractive).expect("cls compile")
 }
 
@@ -232,12 +314,38 @@ pub fn set_mask(mask: &TensorData, seq_len: usize) {
 pub fn forward(layer_exes: &[Executable], cls_exe: &Executable,
                hidden_a: &TensorData, hidden_b: &TensorData,
                mask: &TensorData, cls_out: &TensorData) {
-    for (i, exe) in layer_exes.iter().enumerate() {
-        let (src, dst) = if i % 2 == 0 { (hidden_a, hidden_b) } else { (hidden_b, hidden_a) };
-        exe.run(&[src, mask], &[dst]).unwrap();
+    let cls_is_fused = CLS_FUSED.with(|c| *c.borrow());
+
+    let used_fused = FUSED_PAIR_EXES.with(|f| {
+        let fused = f.borrow();
+        if fused.len() == LAYERS / 2 {
+            let last_idx = fused.len() - 1;
+            for (i, exe) in fused.iter().enumerate() {
+                if i == last_idx && cls_is_fused {
+                    // Last pair has classifier fused — output to cls_out
+                    let src = if i % 2 == 0 { hidden_a } else { hidden_b };
+                    exe.run(&[src, mask], &[cls_out]).unwrap();
+                } else {
+                    let (src, dst) = if i % 2 == 0 { (hidden_a, hidden_b) } else { (hidden_b, hidden_a) };
+                    exe.run(&[src, mask], &[dst]).unwrap();
+                }
+            }
+            true
+        } else {
+            false
+        }
+    });
+    if !used_fused {
+        for (i, exe) in layer_exes.iter().enumerate() {
+            let (src, dst) = if i % 2 == 0 { (hidden_a, hidden_b) } else { (hidden_b, hidden_a) };
+            exe.run(&[src, mask], &[dst]).unwrap();
+        }
     }
-    let final_h = if LAYERS % 2 == 0 { hidden_a } else { hidden_b };
-    cls_exe.run(&[final_h], &[cls_out]).unwrap();
+    if !cls_is_fused {
+        let num = if used_fused { LAYERS / 2 } else { LAYERS };
+        let final_h = if num % 2 == 0 { hidden_a } else { hidden_b };
+        cls_exe.run(&[final_h], &[cls_out]).unwrap();
+    }
 }
 
 pub fn classify(cls_out: &TensorData) -> (f32, f32, &'static str) {
