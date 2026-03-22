@@ -13,7 +13,7 @@ triggers:
 
 Optimize DistilBERT inference latency on Apple Neural Engine via the private API. Beat CoreML on the same model, same hardware.
 
-**Metric: median latency in ms. Lower is better. CoreML baseline: 5.858ms.**
+**Metric: median latency in ms. Lower is better. Beat CoreML on YOUR machine.**
 
 ## Setup
 
