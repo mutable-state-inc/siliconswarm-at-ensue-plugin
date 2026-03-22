@@ -2,7 +2,7 @@
 name: autoresearch
 description: "Optimize DistilBERT inference latency on ANE. Beat CoreML."
 argument-hint: "[focus]"
-allowed-tools: Bash(make *), Bash(git *), Bash(ane-bench *), Bash(export *), Read(ane_kernel/crates/ane/examples/distilbert_bench.rs), Edit(ane_kernel/crates/ane/examples/distilbert_bench.rs)
+allowed-tools: Bash(make *), Bash(git *), Bash(./ane_kernel/target/release/ane-bench *), Read(ane_kernel/crates/ane/examples/distilbert_bench.rs), Edit(ane_kernel/crates/ane/examples/distilbert_bench.rs)
 triggers:
   - autoresearch
   - optimize
@@ -20,50 +20,49 @@ Optimize DistilBERT inference latency on Apple Neural Engine via the private API
 ```bash
 cd "${CLAUDE_SKILL_DIR}/../.."
 make build
-export PATH="${PATH}:${CLAUDE_SKILL_DIR}/../../ane_kernel/target/release"
 ```
 
-`make build` builds everything including the `ane-bench` CLI. All commands use `make` or `ane-bench`. Do not call `cargo` directly.
+`make build` builds everything: the ANE crate, the benchmark, and the `ane-bench` CLI.
 
 ## Rules
 
 - Edit ONLY `ane_kernel/crates/ane/examples/distilbert_bench.rs`
-- Do NOT read any other source files. The API is below.
+- Do NOT read any other source files. Run `/ane-private-api` for the API reference.
 - `make verify` THEN `make bench`. Never skip verify.
 - `Executable` has one method: `exe.run(&[&input], &[&output])`. No variants.
-- Publish result, insight, and hypothesis after every experiment.
+- Use `make` for build/bench/verify. Use `./ane_kernel/target/release/ane-bench` for Ensue.
 
 ## Loop
 
 ```
 LOOP FOREVER:
-  1. THINK   — ane-bench results, best, search
+  1. THINK   — ./ane_kernel/target/release/ane-bench results
   2. Read distilbert_bench.rs
   3. Hypothesize — what and why
   4. Edit
   5. make build
   6. make verify — revert if fails
   7. make bench — record median
-  8. PUBLISH — ane-bench publish + insight + hypothesis
+  8. PUBLISH — ./ane_kernel/target/release/ane-bench publish + insight + hypothesis
   9. Keep (commit) or revert
 ```
 
 ## Ensue
 
-Namespace: `@sai_ane/<chip>/`. Key file: `.autoresearch-key`.
+Key file: `.autoresearch-key`. Namespace: `@sai_ane/<chip>/`.
 
 ```bash
-ane-bench chip                       # detect chip
-ane-bench results                    # what's been tried
-ane-bench best                       # number to beat + baseline
-ane-bench search "topic"             # semantic search
-ane-bench insights                   # what others learned
-ane-bench publish --agent=X --status=keep --median=X.X --description="what: detail"
-ane-bench insight --agent=X "observation and why"
-ane-bench hypothesis --agent=X --title="idea" --text="reasoning"
+./ane_kernel/target/release/ane-bench chip
+./ane_kernel/target/release/ane-bench results
+./ane_kernel/target/release/ane-bench best
+./ane_kernel/target/release/ane-bench search "topic"
+./ane_kernel/target/release/ane-bench insights
+./ane_kernel/target/release/ane-bench publish --agent=X --status=keep --median=X.X --description="what: detail"
+./ane_kernel/target/release/ane-bench insight --agent=X "observation and why"
+./ane_kernel/target/release/ane-bench hypothesis --agent=X --title="idea" --text="reasoning"
 ```
 
-Each result includes the full `distilbert_bench.rs` source. Any agent can reproduce any experiment.
+Each published result includes the full kernel source. Publish result, insight, and hypothesis after every experiment.
 
 ## API
 
