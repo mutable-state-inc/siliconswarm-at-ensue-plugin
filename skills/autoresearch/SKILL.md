@@ -24,27 +24,26 @@ make build
 
 `make build` builds everything: the ANE crate, the benchmark, and the `ane-bench` CLI.
 
-## First run (mandatory, no exceptions)
+## First run
 
-You MUST run these three commands before doing anything else. Even if Ensue shows existing results. The CoreML baseline is per-machine and must be measured fresh.
+Run these four commands first. Every time. No exceptions. Do not check Ensue first. Do not read files first. Do not look at git log. Just run them:
 
-```bash
-make bench-coreml                    # measure CoreML on THIS machine — the number to beat
-make verify                          # must pass 8/8
-make bench                           # measure private API on THIS machine
+```
+make build
+make bench-coreml
+make verify
+make bench
 ```
 
-Record the CoreML median from the output:
-```bash
+Then record the CoreML median:
+```
 ./ane_kernel/target/release/ane-bench baseline <coreml_median_ms>
 ```
-
-Do NOT skip this. Do NOT reuse someone else's baseline. Measure it yourself.
 
 ## Rules
 
 - Edit ONLY `ane_kernel/crates/ane/examples/distilbert_bench.rs`
-- Do NOT read any other source files. Run `/ane-private-api` for the API reference.
+- Do NOT read any other source files. The `/ane-private-api` skill has the full API reference if needed.
 - `make verify` THEN `make bench`. Never skip verify.
 - `Executable` has one method: `exe.run(&[&input], &[&output])`. No variants.
 - Use `make` for build/bench/verify. Use `./ane_kernel/target/release/ane-bench` for Ensue.
