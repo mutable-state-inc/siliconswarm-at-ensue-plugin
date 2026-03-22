@@ -383,7 +383,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let accuracy = correct as f64 / total as f64 * 100.0;
     let published_accuracy = 91.3; // f32 reference
-    let min_accuracy = 90.0; // CoreML on ANE gets 90.48%. Match or beat it.
+    let min_accuracy = 90.0; // CoreML on ANE gets 90.48%. PyTorch fp16 gets 91.06%. We must match.
 
     eprintln!("\r\x1b[2K");
     eprintln!("═══════════════════════════════════════════════════════");
