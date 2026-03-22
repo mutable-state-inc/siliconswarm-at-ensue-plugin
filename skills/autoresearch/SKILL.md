@@ -1,88 +1,149 @@
 ---
 name: autoresearch
-description: "Optimize ANE inference latency for DistilBERT. Beat CoreML."
+description: "Optimize DistilBERT inference latency on ANE. Beat CoreML."
 argument-hint: "[focus]"
 allowed-tools: Bash(*), Read, Write, Edit, Glob, Grep, Agent
 triggers:
   - autoresearch
   - optimize
   - benchmark
-  - distilbert
 ---
 
 # autoresearch
 
-Optimize DistilBERT inference latency on Apple Neural Engine via the private `_ANEInMemoryModel` API. The target: beat Apple's CoreML on the same model, same hardware.
+Optimize DistilBERT inference latency on Apple Neural Engine using the private `_ANEInMemoryModel` API. Beat Apple's CoreML on the same model, same hardware.
 
-**The metric: median inference latency in milliseconds (lower is better).**
-
-The baseline to beat is CoreML at **5.86ms** on M1 Max, running Apple's own ANE-optimized DistilBERT.
+**Metric: median inference latency in milliseconds. Lower is better.**
 
 ## Setup
 
 ```bash
 cd "${CLAUDE_SKILL_DIR}/../.."
 make build
+# Build the coordinator CLI
+cd ane_kernel && cargo build --release -p ane-bench && cd ..
+export PATH="${PATH}:$(pwd)/ane_kernel/target/release"
 ```
 
-## Editable files
+Detect this machine's chip and namespace:
+```bash
+ane-bench chip     # prints e.g. "m1-max"
+ane-bench best     # current best + baseline for this chip
+ane-bench results  # what's been tried on this chip
+```
 
-**One file.** All experimentation happens here:
+## Editable file
 
-- `ane_kernel/crates/ane/examples/distilbert_bench.rs` — the kernel. Graph construction, layer fusion, IOSurface management, benchmark loop.
+One file. All experimentation happens here:
 
-## Read-only files
+`ane_kernel/crates/ane/examples/distilbert_bench.rs`
 
-Do not modify these:
+## Read-only
 
-- `ane_kernel/crates/ane/src/` — ANE bindings (the private API wrapper)
+- `ane_kernel/crates/ane/src/` — ANE bindings
 - `ane_kernel/crates/ane/examples/distilbert_verify.rs` — correctness tests
-- `Makefile` — build/bench/verify targets
+- `Makefile`
 
-## Verification
+## The first run
 
-**Every change must pass verification. No exceptions.**
-
-```bash
-make verify    # must exit 0 with "ALL TESTS PASSED"
-```
-
-If verify fails, the change is wrong. Revert. Do not benchmark. Do not commit.
-
-## Benchmarking
+Before optimizing, establish baselines:
 
 ```bash
-make bench     # 1000 iterations, reports median/mean/p5/p95/min
+make verify                        # must pass 8/8
+make bench                         # record median latency
+ane-bench baseline 5.858           # record CoreML baseline (5.858ms on M1 Max)
+ane-bench publish --agent=<NAME> --status=keep --median=<X.X> --description="baseline"
 ```
-
-Only run after `make verify` passes.
 
 ## The loop
 
 ```
-1. Read distilbert_bench.rs — understand current state
-2. Hypothesize — what change will reduce latency and why?
-3. Implement — edit distilbert_bench.rs
-4. make build — must compile
-5. make verify — must pass (8/8 tests)
-6. make bench — measure median latency
-7. If improved: git add -A && git commit -m "<description>"
-8. If not: git checkout -- ane_kernel/crates/ane/examples/distilbert_bench.rs
-9. Goto 1
+LOOP FOREVER:
+  1. THINK    — ane-bench results, best, insights, search
+  2. IMPLEMENT — edit distilbert_bench.rs
+  3. make build
+  4. make verify — MUST pass 8/8. If not, revert immediately.
+  5. make bench — record median
+  6. PUBLISH  — always, keep or discard
+  7. DECIDE   — keep: commit. discard: git checkout distilbert_bench.rs
 ```
 
-**The goal is simple: get the lowest median latency.** Everything in `distilbert_bench.rs` is fair game.
+### THINK
 
-**Simplicity criterion**: all else being equal, simpler is better. Removing something and getting equal or better results is a win.
+Read what's been tried on this chip:
+```bash
+ane-bench results                  # all experiments
+ane-bench best                     # current best + CoreML baseline
+ane-bench insights                 # what others learned
+ane-bench search "layer fusion"    # semantic search
+```
 
-**The first run**: establish the baseline — run `make verify` then `make bench` without changing anything.
+### VERIFY (mandatory)
+
+```bash
+make verify   # exit 0 = pass, exit 1 = fail
+```
+
+If ANY test fails, the change is wrong. Revert. Do not bench. Do not publish.
+
+### PUBLISH (mandatory, every experiment)
+
+Three things after every experiment — no exceptions:
+
+1. **Result** — the measurement:
+```bash
+ane-bench publish \
+  --agent=<NAME> \
+  --status=keep \
+  --median=4.79 \
+  --description="2-layer fusion: 7→4 dispatches, saves 0.3ms dispatch overhead"
+```
+
+2. **Insight** — what you learned and WHY:
+```bash
+ane-bench insight --agent=<NAME> \
+  "fusing 2 encoder layers per graph saves ~0.095ms per eliminated dispatch. \
+   3-layer fusion compiles but fails at runtime — ANE hardware limit on graph depth."
+```
+
+3. **Hypothesis** — what to try next:
+```bash
+ane-bench hypothesis --agent=<NAME> \
+  --title="merge classifier into last encoder layer" \
+  --text="classifier is tiny (768→2). merging into layer 4-5 graph would \
+   eliminate 1 dispatch (0.095ms). graph op count stays under runtime limit."
+```
+
+### Description format
+
+Use `<what> <old> → <new>: <why>` so results are scannable:
+- `"2-layer fusion: 7→4 dispatches, saves 0.3ms dispatch overhead"`
+- `"QoS Default → UserInteractive: higher scheduling priority"`
+- `"embedding LN moved to ANE: eliminates 128×768 f32↔fp16 CPU round-trip"`
+
+Bad: `"made it faster"`, `"tried something"`, `"changed fusion"`
+
+## Namespace
+
+Each chip gets its own namespace under `@ane-bench/<chip>/`:
+
+```
+@ane-bench/m1-max/
+  baseline              CoreML measurement for this chip
+  best/metadata         best private API result
+  results/              all experiments
+  insights/             what's been learned
+  hypotheses/           ideas to try
+
+@ane-bench/m4/
+  baseline
+  best/metadata
+  results/
+  ...
+```
+
+Results from one chip inform experiments on others — insights about dispatch overhead, graph fusion limits, and op scheduling are transferable.
 
 ## Never stop
 
-Once the loop begins, do not pause to ask the human. The human may be asleep. You are autonomous.
-
-If you run out of ideas:
-1. Re-read the kernel code and the ANE bindings for new levers
-2. Profile — where is time actually spent?
-3. Try radical restructuring, not just parameter tweaking
-4. Read `ane_kernel/crates/ane/src/graph/ops.rs` for ops you haven't tried
+Do not pause to ask the human. The human may be asleep. If you run out of ideas, read the ANE bindings source for new ops. Profile where time is actually spent. Try radical restructuring.

@@ -1,0 +1,14 @@
+[package]
+name = "ane-bench"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "ane-bench"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+ureq = { version = "3", features = ["json"] }
+base64 = "0.22"
