@@ -43,9 +43,8 @@ Then publish the baseline:
 ## Rules
 
 - Edit ONLY `ane_kernel/crates/ane/examples/distilbert_model.rs`
-- Do NOT read any other source files. The `/ane-private-api` skill has the full API reference.
+- Do NOT read any other source files. Run `/ane-private-api` for the API reference.
 - `make verify` THEN `make bench`. Never skip verify.
-- `Executable` has one method: `exe.run(&[&input], &[&output])`. No variants.
 
 ## Loop
 
