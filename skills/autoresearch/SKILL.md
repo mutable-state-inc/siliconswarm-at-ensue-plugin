@@ -2,7 +2,7 @@
 name: autoresearch
 description: "Optimize DistilBERT inference latency on ANE. Beat CoreML."
 argument-hint: "[focus]"
-allowed-tools: Bash(make *), Bash(git *), Bash(ane-bench *), Bash(export *), Bash(cd *), Read(ane_kernel/crates/ane/examples/distilbert_bench.rs), Edit(ane_kernel/crates/ane/examples/distilbert_bench.rs)
+allowed-tools: Bash(make *), Bash(git *), Bash(ane-bench *), Bash(export *), Read(ane_kernel/crates/ane/examples/distilbert_bench.rs), Edit(ane_kernel/crates/ane/examples/distilbert_bench.rs)
 triggers:
   - autoresearch
   - optimize
@@ -20,9 +20,10 @@ Optimize DistilBERT inference latency on Apple Neural Engine via the private API
 ```bash
 cd "${CLAUDE_SKILL_DIR}/../.."
 make build
-cd ane_kernel && cargo build --release -p ane-bench && cd ..
 export PATH="${PATH}:$(pwd)/ane_kernel/target/release"
 ```
+
+`make build` builds everything including the `ane-bench` CLI. All commands use `make` or `ane-bench`. Do not call `cargo` directly.
 
 ## Rules
 
