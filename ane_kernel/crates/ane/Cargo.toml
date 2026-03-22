@@ -15,24 +15,8 @@ build = "build.rs"
 crate-type = ["cdylib", "rlib"]
 
 [[example]]
-name = "bench"
-path = "examples/bench.rs"
-
-[[example]]
-name = "gpt2_ane"
-path = "examples/gpt2_ane.rs"
-
-[[example]]
-name = "phi_ane"
-path = "examples/phi_ane.rs"
-
-[[example]]
-name = "smollm_ane"
-path = "examples/smollm_ane.rs"
-
-[[example]]
-name = "phi_gpu"
-path = "examples/phi_gpu.rs"
+name = "distilbert_bench"
+path = "examples/distilbert_bench.rs"
 
 [dependencies]
 thiserror.workspace = true
