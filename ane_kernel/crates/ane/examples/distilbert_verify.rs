@@ -4,6 +4,7 @@
 /// Exit code 0 = all tests pass, 1 = at least one failure.
 ///
 /// Run: cargo run --release --example distilbert_verify
+use std::io::Write;
 use std::time::Instant;
 
 use ane::{Executable, Graph, NSQualityOfService, Shape, TensorData};
@@ -343,51 +344,72 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if pos > neg { "POSITIVE" } else { "NEGATIVE" }
     };
 
-    let test_cases = [
-        ("I love this movie, it's absolutely wonderful!", "POSITIVE"),
-        ("This is the worst film I have ever seen.", "NEGATIVE"),
-        (
-            "The food was delicious and the service was excellent.",
-            "POSITIVE",
-        ),
-        ("I hate waiting in long lines at the store.", "NEGATIVE"),
-        ("What a beautiful day to be alive!", "POSITIVE"),
-        (
-            "The product broke after one day, total waste of money.",
-            "NEGATIVE",
-        ),
-        (
-            "This book changed my life in the best way possible.",
-            "POSITIVE",
-        ),
-        ("Terrible customer service, never coming back.", "NEGATIVE"),
-    ];
-
-    eprintln!();
-    let mut passed = 0;
-    for (text, expected) in &test_cases {
-        embed_sentence(text);
-        let label = run();
-        let ok = label == *expected;
-        if ok {
-            passed += 1;
-        }
-        eprintln!("  {} \"{}\"", if ok { "✓" } else { "✗" }, text);
-        eprintln!("    Expected: {expected}, Got: {label}");
-    }
-
-    eprintln!();
-    eprintln!("═══════════════════════════════════════════════════════");
-    eprintln!("  {passed}/{} tests passed", test_cases.len());
-    if passed == test_cases.len() {
-        eprintln!("  ALL TESTS PASSED");
-    } else {
-        eprintln!("  SOME TESTS FAILED");
-    }
-    eprintln!("═══════════════════════════════════════════════════════");
-
-    if passed < test_cases.len() {
+    // Load SST-2 validation set (872 examples)
+    let sst2_path = std::path::Path::new("sst2_validation.tsv");
+    if !sst2_path.exists() {
+        eprintln!("  ERROR: sst2_validation.tsv not found.");
+        eprintln!("  Run: python3 -c \"from datasets import load_dataset; ds = load_dataset('glue','sst2',split='validation'); f = open('sst2_validation.tsv','w'); f.write('label\\tsentence\\n'); [f.write(f'{{r[\\\"label\\\"]}}\\t{{r[\\\"sentence\\\"]}}\\n') for r in ds]\"");
         std::process::exit(1);
     }
+
+    let tsv = std::fs::read_to_string(sst2_path).expect("read sst2_validation.tsv");
+    let lines: Vec<&str> = tsv.lines().skip(1).collect(); // skip header
+    let total = lines.len();
+    eprintln!("  Running SST-2 validation ({total} examples)...");
+
+    let mut correct = 0;
+    let mut errors: Vec<(String, &str, &str)> = Vec::new();
+
+    for (i, line) in lines.iter().enumerate() {
+        let parts: Vec<&str> = line.splitn(2, '\t').collect();
+        if parts.len() != 2 { continue; }
+        let label: usize = parts[0].parse().unwrap_or(0);
+        let sentence = parts[1].trim();
+        let expected = if label == 1 { "POSITIVE" } else { "NEGATIVE" };
+
+        embed_sentence(sentence);
+        let got = run();
+        if got == expected {
+            correct += 1;
+        } else if errors.len() < 5 {
+            errors.push((sentence.to_string(), expected, got));
+        }
+
+        if (i + 1) % 100 == 0 {
+            eprint!("\r\x1b[2K  {}/{total} ({:.1}%)...", i + 1, correct as f64 / (i + 1) as f64 * 100.0);
+            let _ = std::io::stderr().flush();
+        }
+    }
+
+    let accuracy = correct as f64 / total as f64 * 100.0;
+    let published_accuracy = 91.3; // f32 reference
+    let min_accuracy = 90.0; // CoreML on ANE gets 90.48%. Match or beat it.
+
+    eprintln!("\r\x1b[2K");
+    eprintln!("═══════════════════════════════════════════════════════");
+    eprintln!("  SST-2 Validation Results");
+    eprintln!("═══════════════════════════════════════════════════════");
+    eprintln!("  Correct:    {correct}/{total}");
+    eprintln!("  Accuracy:   {accuracy:.2}%");
+    eprintln!("  Published:  {published_accuracy}% (f32 reference)");
+    eprintln!("  Threshold:  {min_accuracy}% (fp16 tolerance)");
+
+    if !errors.is_empty() {
+        eprintln!();
+        eprintln!("  Sample errors:");
+        for (sent, expected, got) in &errors {
+            let short = if sent.len() > 60 { &sent[..60] } else { sent.as_str() };
+            eprintln!("    ✗ \"{short}...\" expected={expected} got={got}");
+        }
+    }
+
+    eprintln!("═══════════════════════════════════════════════════════");
+    if accuracy >= min_accuracy {
+        eprintln!("  PASSED ({accuracy:.2}% ≥ {min_accuracy}%)");
+    } else {
+        eprintln!("  FAILED ({accuracy:.2}% < {min_accuracy}%)");
+        std::process::exit(1);
+    }
+
     Ok(())
 }
