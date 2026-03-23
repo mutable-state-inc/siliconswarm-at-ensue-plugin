@@ -114,7 +114,7 @@ fn rpc(tool_name: &str, arguments: serde_json::Value) -> Option<serde_json::Valu
             if e.to_string().contains("401") {
                 eprintln!("  Key may be invalid, expired, or org invite not accepted.");
                 eprintln!(
-                    "  Join org: https://www.ensue-network.ai/join?token=8ccf05cd6ee14a349d9dccb031821892c1442285b9aa483e8fbecc3e014f7cbd&redirect=ane"
+                    "  Join org: https://www.ensue-network.ai/join?token=8ccf05cd6ee14a349d9dccb031821892c1442285b9aa483e8fbecc3e014f7cbd&redirect=/lab/ane"
                 );
             }
             return None;
