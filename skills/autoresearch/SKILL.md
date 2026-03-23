@@ -52,6 +52,7 @@ Then publish the baseline:
 ## Rules
 
 - Edit ONLY `ane_kernel/crates/ane/examples/distilbert_model.rs`
+- Do NOT modify the benchmark harness (`distilbert_bench.rs`), CoreML benchmark (`benchmark_coreml.py`), or verification (`distilbert_verify.rs`). The benchmark input, iteration count, and timing methodology are fixed.
 - Do NOT read any other source files. Run `/ane-private-api` for the API reference.
 - `make verify` THEN `make bench`. Never skip verify.
 - Run ONE command per Bash call. Do NOT chain commands with `&&`, `||`, `;`, or `echo`. Each command gets its own Bash call.

@@ -12,10 +12,15 @@ import time
 import coremltools as ct
 import numpy as np
 from huggingface_hub import snapshot_download
+from transformers import AutoTokenizer
 
 MODEL_ID = "apple/ane-distilbert-base-uncased-finetuned-sst-2-english"
 MLPACKAGE = "DistilBERT_fp16.mlpackage"
 LOCAL_PATH = "/tmp/DistilBERT_fp16.mlpackage"
+SEQ_LEN = 128
+
+# Same input as ANE private API benchmark (distilbert_bench.rs)
+BENCH_TEXT = "This is a test sentence for benchmarking."
 
 # Download if needed
 if not os.path.exists(LOCAL_PATH):
@@ -26,9 +31,13 @@ if not os.path.exists(LOCAL_PATH):
 print("Loading CoreML model...")
 model = ct.models.MLModel(LOCAL_PATH, compute_units=ct.ComputeUnit.ALL)
 
+# Tokenize the same sentence used by the ANE bench
+print(f"Tokenizing: \"{BENCH_TEXT}\"")
+tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
+enc = tokenizer(BENCH_TEXT, padding="max_length", max_length=SEQ_LEN, truncation=True, return_tensors="np")
 input_data = {
-    "input_ids": np.zeros((1, 128), dtype=np.int32),
-    "attention_mask": np.ones((1, 128), dtype=np.int32),
+    "input_ids": enc["input_ids"].astype(np.int32),
+    "attention_mask": enc["attention_mask"].astype(np.int32),
 }
 
 # Warmup

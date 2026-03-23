@@ -11,8 +11,8 @@ check-rust:
 	fi
 
 check-python:
-	@python3 -c "import coremltools, numpy, huggingface_hub" 2>/dev/null || \
-		(echo "Installing Python dependencies..." && pip3 install coremltools numpy huggingface_hub)
+	@python3 -c "import coremltools, numpy, huggingface_hub, transformers" 2>/dev/null || \
+		(echo "Installing Python dependencies..." && pip3 install coremltools numpy huggingface_hub transformers)
 	@echo "Python OK"
 
 download-models: check-python
