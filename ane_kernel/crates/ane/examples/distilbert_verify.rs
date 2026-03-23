@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .map_err(|e| format!("{e}"))?;
 
     eprint!("  Compiling... ");
-    let layer_exes: Vec<_> = mw.layers.iter().map(|lw| compile_layer(lw)).collect();
+    let layer_exes: Vec<_> = mw.layers.iter().map(compile_layer).collect();
     let cls_exe = compile_classifier(&mw);
     eprintln!("ok");
 

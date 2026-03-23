@@ -122,7 +122,7 @@ impl Graph {
                 kernel_height: kernel_h,
                 kernel_width: kernel_w,
                 groups: descriptor.groups,
-                pad_mode: descriptor.pad_mode.clone(),
+                pad_mode: descriptor.pad_mode,
                 pad_top: 0,
                 pad_bottom: 0,
                 pad_left: 0,
@@ -167,7 +167,7 @@ impl Graph {
                 stride_height: descriptor.stride_height,
                 stride_width: descriptor.stride_width,
                 groups: descriptor.groups,
-                pad_mode: descriptor.pad_mode.clone(),
+                pad_mode: descriptor.pad_mode,
                 pad_top: 0,
                 pad_bottom: 0,
                 pad_left: 0,
@@ -524,8 +524,8 @@ impl Graph {
                     (input.shape.width.saturating_sub(kernel_w)) / stride_width + 1,
                 ),
                 PadMode::Same => (
-                    (input.shape.height + stride_height - 1) / stride_height,
-                    (input.shape.width + stride_width - 1) / stride_width,
+                    input.shape.height.div_ceil(stride_height),
+                    input.shape.width.div_ceil(stride_width),
                 ),
             }
         };

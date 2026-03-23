@@ -16,57 +16,82 @@ pub const CLS: usize = 2;
 // ─── Weights ───────────────────────────────────────────────────────────────
 
 pub struct LW {
-    pub sa_ln_w: Box<[f32]>, pub sa_ln_b: Box<[f32]>,
-    pub q_w: Box<[f32]>, pub q_b: Box<[f32]>,
-    pub k_w: Box<[f32]>, pub k_b: Box<[f32]>,
-    pub v_w: Box<[f32]>, pub v_b: Box<[f32]>,
-    pub out_w: Box<[f32]>, pub out_b: Box<[f32]>,
-    pub ffn_ln_w: Box<[f32]>, pub ffn_ln_b: Box<[f32]>,
-    pub ffn1_w: Box<[f32]>, pub ffn1_b: Box<[f32]>,
-    pub ffn2_w: Box<[f32]>, pub ffn2_b: Box<[f32]>,
+    pub sa_ln_w: Box<[f32]>,
+    pub sa_ln_b: Box<[f32]>,
+    pub q_w: Box<[f32]>,
+    pub q_b: Box<[f32]>,
+    pub k_w: Box<[f32]>,
+    pub k_b: Box<[f32]>,
+    pub v_w: Box<[f32]>,
+    pub v_b: Box<[f32]>,
+    pub out_w: Box<[f32]>,
+    pub out_b: Box<[f32]>,
+    pub ffn_ln_w: Box<[f32]>,
+    pub ffn_ln_b: Box<[f32]>,
+    pub ffn1_w: Box<[f32]>,
+    pub ffn1_b: Box<[f32]>,
+    pub ffn2_w: Box<[f32]>,
+    pub ffn2_b: Box<[f32]>,
 }
 
 pub struct MW {
-    pub word_emb: Box<[f32]>, pub pos_emb: Box<[f32]>,
-    pub emb_ln_w: Box<[f32]>, pub emb_ln_b: Box<[f32]>,
+    pub word_emb: Box<[f32]>,
+    pub pos_emb: Box<[f32]>,
+    pub emb_ln_w: Box<[f32]>,
+    pub emb_ln_b: Box<[f32]>,
     pub layers: Box<[LW]>,
-    pub pre_w: Box<[f32]>, pub pre_b: Box<[f32]>,
-    pub cls_w: Box<[f32]>, pub cls_b: Box<[f32]>,
+    pub pre_w: Box<[f32]>,
+    pub pre_b: Box<[f32]>,
+    pub cls_w: Box<[f32]>,
+    pub cls_b: Box<[f32]>,
 }
 
 pub fn tf(st: &SafeTensors, name: &str) -> Box<[f32]> {
-    let t = st.tensor(name).unwrap_or_else(|_| panic!("missing: {name}"));
+    let t = st
+        .tensor(name)
+        .unwrap_or_else(|_| panic!("missing: {name}"));
     let b = t.data();
     match t.dtype() {
-        Dtype::BF16 => b.chunks_exact(2).map(|c| bf16::from_bits(u16::from_le_bytes([c[0],c[1]])).to_f32()).collect(),
-        Dtype::F16 => b.chunks_exact(2).map(|c| f16::from_bits(u16::from_le_bytes([c[0],c[1]])).to_f32()).collect(),
-        Dtype::F32 => b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0],c[1],c[2],c[3]])).collect(),
+        Dtype::BF16 => b
+            .chunks_exact(2)
+            .map(|c| bf16::from_bits(u16::from_le_bytes([c[0], c[1]])).to_f32())
+            .collect(),
+        Dtype::F16 => b
+            .chunks_exact(2)
+            .map(|c| f16::from_bits(u16::from_le_bytes([c[0], c[1]])).to_f32())
+            .collect(),
+        Dtype::F32 => b
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect(),
         other => panic!("unsupported: {other:?}"),
     }
 }
 
 pub fn load(st: &SafeTensors) -> MW {
-    let layers: Box<[LW]> = (0..LAYERS).map(|i| {
-        let p = format!("distilbert.transformer.layer.{i}");
-        LW {
-            sa_ln_w: tf(st, &format!("{p}.sa_layer_norm.weight")),
-            sa_ln_b: tf(st, &format!("{p}.sa_layer_norm.bias")),
-            q_w: tf(st, &format!("{p}.attention.q_lin.weight")),
-            q_b: tf(st, &format!("{p}.attention.q_lin.bias")),
-            k_w: tf(st, &format!("{p}.attention.k_lin.weight")),
-            k_b: tf(st, &format!("{p}.attention.k_lin.bias")),
-            v_w: tf(st, &format!("{p}.attention.v_lin.weight")),
-            v_b: tf(st, &format!("{p}.attention.v_lin.bias")),
-            out_w: tf(st, &format!("{p}.attention.out_lin.weight")),
-            out_b: tf(st, &format!("{p}.attention.out_lin.bias")),
-            ffn_ln_w: tf(st, &format!("{p}.output_layer_norm.weight")),
-            ffn_ln_b: tf(st, &format!("{p}.output_layer_norm.bias")),
-            ffn1_w: tf(st, &format!("{p}.ffn.lin1.weight")),
-            ffn1_b: tf(st, &format!("{p}.ffn.lin1.bias")),
-            ffn2_w: tf(st, &format!("{p}.ffn.lin2.weight")),
-            ffn2_b: tf(st, &format!("{p}.ffn.lin2.bias")),
-        }
-    }).collect();
+    let layers: Box<[LW]> = (0..LAYERS)
+        .map(|i| {
+            let p = format!("distilbert.transformer.layer.{i}");
+            LW {
+                sa_ln_w: tf(st, &format!("{p}.sa_layer_norm.weight")),
+                sa_ln_b: tf(st, &format!("{p}.sa_layer_norm.bias")),
+                q_w: tf(st, &format!("{p}.attention.q_lin.weight")),
+                q_b: tf(st, &format!("{p}.attention.q_lin.bias")),
+                k_w: tf(st, &format!("{p}.attention.k_lin.weight")),
+                k_b: tf(st, &format!("{p}.attention.k_lin.bias")),
+                v_w: tf(st, &format!("{p}.attention.v_lin.weight")),
+                v_b: tf(st, &format!("{p}.attention.v_lin.bias")),
+                out_w: tf(st, &format!("{p}.attention.out_lin.weight")),
+                out_b: tf(st, &format!("{p}.attention.out_lin.bias")),
+                ffn_ln_w: tf(st, &format!("{p}.output_layer_norm.weight")),
+                ffn_ln_b: tf(st, &format!("{p}.output_layer_norm.bias")),
+                ffn1_w: tf(st, &format!("{p}.ffn.lin1.weight")),
+                ffn1_b: tf(st, &format!("{p}.ffn.lin1.bias")),
+                ffn2_w: tf(st, &format!("{p}.ffn.lin2.weight")),
+                ffn2_b: tf(st, &format!("{p}.ffn.lin2.bias")),
+            }
+        })
+        .collect();
     MW {
         word_emb: tf(st, "distilbert.embeddings.word_embeddings.weight"),
         pos_emb: tf(st, "distilbert.embeddings.position_embeddings.weight"),
@@ -82,8 +107,22 @@ pub fn load(st: &SafeTensors) -> MW {
 
 // ─── Graph helpers ─────────────────────────────────────────────────────────
 
-fn s1() -> Shape { Shape { batch: 1, channels: 1, height: 1, width: 1 } }
-fn sc(d: usize) -> Shape { Shape { batch: 1, channels: d, height: 1, width: 1 } }
+fn s1() -> Shape {
+    Shape {
+        batch: 1,
+        channels: 1,
+        height: 1,
+        width: 1,
+    }
+}
+fn sc(d: usize) -> Shape {
+    Shape {
+        batch: 1,
+        channels: d,
+        height: 1,
+        width: 1,
+    }
+}
 
 pub fn layer_norm(g: &mut Graph, x: ane::Tensor, w: &[f32], b: &[f32], d: usize) -> ane::Tensor {
     let wt = g.constant(w, sc(d));
@@ -123,7 +162,12 @@ pub fn gelu(g: &mut Graph, x: ane::Tensor) -> ane::Tensor {
 pub fn compile_layer(w: &LW) -> Executable {
     let mut g = Graph::new();
     let x = g.placeholder(Shape::spatial(DIM, 1, SEQ));
-    let mask = g.placeholder(Shape { batch: 1, channels: 1, height: SEQ, width: SEQ });
+    let mask = g.placeholder(Shape {
+        batch: 1,
+        channels: 1,
+        height: SEQ,
+        width: SEQ,
+    });
 
     // QKV
     let q_proj = g.inner_product(x, &w.q_w, DIM, DIM);
@@ -137,9 +181,33 @@ pub fn compile_layer(w: &LW) -> Executable {
     let v = g.addition(v_proj, v_bias);
 
     // Multi-head reshape + transpose
-    let q = g.reshape(q, Shape { batch: 1, channels: HEADS, height: HD, width: SEQ });
-    let k = g.reshape(k, Shape { batch: 1, channels: HEADS, height: HD, width: SEQ });
-    let v = g.reshape(v, Shape { batch: 1, channels: HEADS, height: HD, width: SEQ });
+    let q = g.reshape(
+        q,
+        Shape {
+            batch: 1,
+            channels: HEADS,
+            height: HD,
+            width: SEQ,
+        },
+    );
+    let k = g.reshape(
+        k,
+        Shape {
+            batch: 1,
+            channels: HEADS,
+            height: HD,
+            width: SEQ,
+        },
+    );
+    let v = g.reshape(
+        v,
+        Shape {
+            batch: 1,
+            channels: HEADS,
+            height: HD,
+            width: SEQ,
+        },
+    );
     let hw = [0, 1, 3, 2];
     let q = g.transpose(q, hw);
     let k = g.transpose(k, hw);
@@ -173,7 +241,8 @@ pub fn compile_layer(w: &LW) -> Executable {
     let out = g.addition(fc2, h);
     let _ = layer_norm(&mut g, out, &w.ffn_ln_w, &w.ffn_ln_b, DIM);
 
-    g.compile(NSQualityOfService::UserInteractive).expect("layer compile")
+    g.compile(NSQualityOfService::UserInteractive)
+        .expect("layer compile")
 }
 
 pub fn compile_classifier(mw: &MW) -> Executable {
@@ -186,13 +255,13 @@ pub fn compile_classifier(mw: &MW) -> Executable {
     let cls_proj = g.inner_product(pre, &mw.cls_w, DIM, CLS);
     let cls_bias = g.constant(&mw.cls_b, sc(CLS));
     let _ = g.addition(cls_proj, cls_bias);
-    g.compile(NSQualityOfService::UserInteractive).expect("cls compile")
+    g.compile(NSQualityOfService::UserInteractive)
+        .expect("cls compile")
 }
 
 // ─── Inference ─────────────────────────────────────────────────────────────
 
-pub fn embed(mw: &MW, tok: &tokenizers::Tokenizer, text: &str,
-             hidden: &TensorData) -> usize {
+pub fn embed(mw: &MW, tok: &tokenizers::Tokenizer, text: &str, hidden: &TensorData) -> usize {
     let enc = tok.encode(text, true).expect("encode");
     let ids = enc.get_ids();
     let len = ids.len().min(SEQ);
@@ -207,10 +276,15 @@ pub fn embed(mw: &MW, tok: &tokenizers::Tokenizer, text: &str,
     // Embedding LayerNorm (CPU, f32)
     for s in 0..SEQ {
         let mut mean = 0f32;
-        for c in 0..DIM { mean += surf[c * SEQ + s]; }
+        for c in 0..DIM {
+            mean += surf[c * SEQ + s];
+        }
         mean /= DIM as f32;
         let mut var = 0f32;
-        for c in 0..DIM { let d = surf[c * SEQ + s] - mean; var += d * d; }
+        for c in 0..DIM {
+            let d = surf[c * SEQ + s] - mean;
+            var += d * d;
+        }
         var /= DIM as f32;
         let rstd = 1.0 / (var + 1e-12_f32).sqrt();
         for c in 0..DIM {
@@ -224,25 +298,38 @@ pub fn set_mask(mask: &TensorData, seq_len: usize) {
     let mut m = mask.as_f32_slice_mut();
     for row in 0..SEQ {
         for col in 0..SEQ {
-            m[row * SEQ + col] = if row < seq_len && col < seq_len { 0.0 } else { -65504.0 };
+            m[row * SEQ + col] = if row < seq_len && col < seq_len {
+                0.0
+            } else {
+                -65504.0
+            };
         }
     }
 }
 
-pub fn forward(layer_exes: &[Executable], cls_exe: &Executable,
-               hidden_a: &TensorData, hidden_b: &TensorData,
-               mask: &TensorData, cls_out: &TensorData) {
+pub fn forward(
+    layer_exes: &[Executable],
+    cls_exe: &Executable,
+    hidden_a: &TensorData,
+    hidden_b: &TensorData,
+    mask: &TensorData,
+    cls_out: &TensorData,
+) {
     for (i, exe) in layer_exes.iter().enumerate() {
-        let (src, dst) = if i % 2 == 0 { (hidden_a, hidden_b) } else { (hidden_b, hidden_a) };
+        let (src, dst) = if i % 2 == 0 {
+            (hidden_a, hidden_b)
+        } else {
+            (hidden_b, hidden_a)
+        };
         exe.run(&[src, mask], &[dst]).unwrap();
     }
-    let final_h = if LAYERS % 2 == 0 { hidden_a } else { hidden_b };
+    let final_h = if LAYERS.is_multiple_of(2) { hidden_a } else { hidden_b };
     cls_exe.run(&[final_h], &[cls_out]).unwrap();
 }
 
 pub fn classify(cls_out: &TensorData) -> (f32, f32, &'static str) {
     let out = cls_out.as_f32_slice();
     let neg = out[0];
-    let pos = out[1 * SEQ];
+    let pos = out[SEQ];
     (neg, pos, if pos > neg { "POSITIVE" } else { "NEGATIVE" })
 }

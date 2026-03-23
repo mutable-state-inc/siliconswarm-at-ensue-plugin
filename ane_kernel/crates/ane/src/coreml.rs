@@ -14,9 +14,7 @@ fn ensure_coreml_loaded() {
     LOAD_COREML.call_once(|| {
         unsafe {
             // Load CoreML.framework dynamically
-            let path = std::ffi::CStr::from_bytes_with_nul_unchecked(
-                b"/System/Library/Frameworks/CoreML.framework/CoreML\0",
-            );
+            let path = c"/System/Library/Frameworks/CoreML.framework/CoreML";
             libc::dlopen(path.as_ptr(), libc::RTLD_NOW | libc::RTLD_GLOBAL);
         }
     });
@@ -156,7 +154,7 @@ impl CoreMLModel {
 
             if !pred_error.is_null() {
                 let desc: Retained<NSString> = msg_send![&*pred_error, localizedDescription];
-                return Err(format!("prediction failed: {}", desc.to_string()));
+                return Err(format!("prediction failed: {desc}"));
             }
 
             Ok(elapsed_us)

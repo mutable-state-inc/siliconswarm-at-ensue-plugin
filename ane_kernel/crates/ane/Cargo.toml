@@ -11,6 +11,8 @@ keywords = ["apple", "neural-engine", "ane", "machine-learning"]
 categories = ["api-bindings", "hardware-support"]
 build = "build.rs"
 
+autoexamples = false
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 

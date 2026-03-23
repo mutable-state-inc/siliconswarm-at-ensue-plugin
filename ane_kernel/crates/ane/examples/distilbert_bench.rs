@@ -31,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     eprint!("  Compiling... ");
     let t0 = Instant::now();
-    let layer_exes: Vec<_> = mw.layers.iter().map(|lw| compile_layer(lw)).collect();
+    let layer_exes: Vec<_> = mw.layers.iter().map(compile_layer).collect();
     let cls_exe = compile_classifier(&mw);
     eprintln!(
         "ok ({:.1}s, {} dispatches)",

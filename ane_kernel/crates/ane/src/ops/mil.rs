@@ -674,8 +674,8 @@ fn emit_layer(
             *blob_index += 1;
 
             out.push_str(&format!(
-                "        tensor<fp16, [{ch}]> {beta_var} = const()[name = string(\"{beta_var}\"), val = tensor<fp16, [{ch}]>({})];\n",
-                format!("[{}]", vec!["0.0"; ch as usize].join(", ")),
+                "        tensor<fp16, [{ch}]> {beta_var} = const()[name = string(\"{beta_var}\"), val = tensor<fp16, [{ch}]>([{}])];\n",
+                vec!["0.0"; ch].join(", "),
             ));
             out.push_str(&format!(
                 "        fp32 {n}_eps = const()[name = string(\"{n}_eps\"), val = fp32({eps})];\n",

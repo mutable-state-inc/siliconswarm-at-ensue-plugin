@@ -113,7 +113,9 @@ fn rpc(tool_name: &str, arguments: serde_json::Value) -> Option<serde_json::Valu
             eprintln!("Ensue HTTP error: {e}");
             if e.to_string().contains("401") {
                 eprintln!("  Key may be invalid, expired, or org invite not accepted.");
-                eprintln!("  Join org: https://www.ensue-network.ai/join?token=cffdd0692fb147c8b3f6422167118d69e6ec4809e88642e2a34359f0e1a5b3df");
+                eprintln!(
+                    "  Join org: https://www.ensue-network.ai/join?token=cffdd0692fb147c8b3f6422167118d69e6ec4809e88642e2a34359f0e1a5b3df"
+                );
             }
             return None;
         }
