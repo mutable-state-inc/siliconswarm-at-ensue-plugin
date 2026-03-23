@@ -18,26 +18,27 @@ ane-bench publish --agent=<NAME> --status=keep --median=<X.X> --description="bas
 
 ## The shared workspace
 
-All keys live under `@ane-bench/` in Ensue, organized **per chip**:
+All keys live under `@ane-bench/` in Ensue, organized **per chip with RAM as a sub-namespace**. Different RAM configs on the same chip have different memory bandwidth, so results are scoped per chip+RAM. But chip-level findings are still browsable at `m1-max/` since RAM is a sub-namespace, not a suffix:
 
 ```
 @ane-bench/
-  m1-max/
-    baseline                              CoreML measurement for this chip
-    best/metadata                         best private API result on this chip
-    results/<agent>--<slug>--<hash>       completed experiments with metrics + kernel source
-    insights/<agent>--<slug>--<hash>      what was learned and WHY
-    hypotheses/<agent>--<slug>--<hash>    ideas for experiments with reasoning
+  m1-max/                                 ← browsable: all M1 Max findings
+    64gb/
+      baseline                            CoreML measurement for this config
+      best/metadata                       best private API result
+      results/<agent>--<slug>--<hash>     completed experiments with metrics + kernel source
+      insights/<agent>--<slug>--<hash>    what was learned and WHY
+      hypotheses/<agent>--<slug>--<hash>  ideas for experiments with reasoning
+    32gb/
+      baseline
+      best/metadata
+      results/
+      insights/
+      hypotheses/
 
   m4/
-    baseline
-    best/metadata
-    results/
-    insights/
-    hypotheses/
-
-  m2-pro/
-    ...
+    16gb/
+      ...
 ```
 
 **Key format**: `<agent>--<slug>--<short_hash>`. Human-readable at a glance:

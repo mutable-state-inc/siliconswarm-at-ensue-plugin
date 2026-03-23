@@ -5,7 +5,7 @@ Rust bindings for Apple Neural Engine via reverse-engineered private API (`_ANEI
 ## Quick start
 
 ```bash
-make build   # compile
+make setup   # install Rust (if needed), compile, detect chip+RAM
 make bench   # run synthetic benchmark
 ```
 

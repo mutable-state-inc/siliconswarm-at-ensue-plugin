@@ -19,7 +19,7 @@ Optimize DistilBERT inference latency on Apple Neural Engine via the private API
 
 ```bash
 cd "${CLAUDE_SKILL_DIR}/../.."
-make build
+make setup
 ```
 
 ## First run
@@ -27,15 +27,15 @@ make build
 Run these commands first. Every time. No exceptions:
 
 ```
-make build
 make bench-coreml
 make verify
 make bench
 ```
 
-Then publish the baseline (use `ane-bench chip` for chip name):
+Then publish the baseline:
 ```
 ./ane_kernel/target/release/ane-bench chip
+./ane_kernel/target/release/ane-bench ram
 ./ane_kernel/target/release/ane-bench baseline <coreml_median_ms>
 ./ane_kernel/target/release/ane-bench publish --agent=<NAME> --status=keep --median=<ane_median_ms> --description="baseline"
 ./ane_kernel/target/release/ane-bench insight --agent=<NAME> "baseline: ANE <X>ms vs CoreML <Y>ms on <chip>"

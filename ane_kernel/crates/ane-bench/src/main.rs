@@ -4,7 +4,7 @@
 /// Each chip establishes its own CoreML baseline before optimizing.
 use std::process::Command;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 const ORG: &str = "sai_ane";
 const API_URL: &str = "https://api.ensue-network.ai/";
@@ -20,31 +20,45 @@ fn api_key() -> String {
     std::process::exit(1);
 }
 
+fn ram_gb() -> u64 {
+    Command::new("sysctl")
+        .args(["-n", "hw.memsize"])
+        .output()
+        .ok()
+        .and_then(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .trim()
+                .parse::<u64>()
+                .ok()
+        })
+        .map(|bytes| bytes / (1024 * 1024 * 1024))
+        .unwrap_or(0)
+}
+
 fn chip_name() -> String {
     let out = Command::new("sysctl")
         .args(["-n", "machdep.cpu.brand_string"])
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_else(|_| "unknown".into());
-    // Normalize: "Apple M1 Max" → "m1-max"
-    out.to_lowercase().replace("apple ", "").replace(' ', "-")
+    // Normalize: "Apple M1 Max" → "m1-max/64gb"
+    // RAM is a sub-namespace so chip-level findings are browsable at m1-max/
+    let base = out.to_lowercase().replace("apple ", "").replace(' ', "-");
+    let gb = ram_gb();
+    if gb > 0 {
+        format!("{base}/{gb}gb")
+    } else {
+        base
+    }
 }
 
 fn chip_slug(chip: &str) -> String {
     chip.chars()
-        .filter(|c| c.is_alphanumeric() || *c == '-')
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '/')
         .collect()
 }
 
 // ─── Ensue JSON-RPC ────────────────────────────────────────────────────────
-
-#[derive(Serialize)]
-struct RpcRequest<'a> {
-    jsonrpc: &'a str,
-    method: &'a str,
-    params: serde_json::Value,
-    id: u32,
-}
 
 #[derive(Deserialize)]
 struct RpcResponse {
@@ -85,14 +99,13 @@ fn rpc(tool_name: &str, arguments: serde_json::Value) -> Option<serde_json::Valu
     if let Some(sc) = result.get("structuredContent") {
         return Some(sc.clone());
     }
-    if let Some(content) = result.get("content").and_then(|c| c.as_array()) {
-        if let Some(text) = content
+    if let Some(content) = result.get("content").and_then(|c| c.as_array())
+        && let Some(text) = content
             .first()
             .and_then(|c| c.get("text"))
             .and_then(|t| t.as_str())
-        {
-            return serde_json::from_str(text).ok();
-        }
+    {
+        return serde_json::from_str(text).ok();
     }
     Some(result)
 }
@@ -108,18 +121,6 @@ fn write_memory(key: &str, description: &str, value: &serde_json::Value) -> bool
                 "embed": true,
                 "embed_source": "description"
             }]
-        }),
-    )
-    .is_some()
-}
-
-fn update_memory(key: &str, description: &str, value: &serde_json::Value) -> bool {
-    rpc(
-        "update_memory",
-        serde_json::json!({
-            "key_name": key,
-            "description": description,
-            "value": value.to_string(),
         }),
     )
     .is_some()
@@ -429,6 +430,11 @@ fn cmd_chip() {
     println!("{chip}");
 }
 
+fn cmd_ram() {
+    let gb = ram_gb();
+    println!("{gb}gb");
+}
+
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 fn slugify(s: &str) -> String {
@@ -470,6 +476,7 @@ fn main() {
 
     match cmd {
         "chip" => cmd_chip(),
+        "ram" => cmd_ram(),
 
         "baseline" => {
             let ms: f64 = args
@@ -520,6 +527,7 @@ fn main() {
             eprintln!();
             eprintln!("Commands:");
             eprintln!("  chip                              Print detected chip name");
+            eprintln!("  ram                               Print detected RAM in GB");
             eprintln!("  baseline <coreml_ms>              Record CoreML baseline for this chip");
             eprintln!(
                 "  publish --agent=X --status=keep|discard --median=X.X --description=\"...\""

@@ -126,16 +126,24 @@ fn sc(d: usize) -> Shape {
 }
 
 pub fn layer_norm(
-    g: &mut Graph, x: ane::Tensor, w: &[f32], b: &[f32], d: usize, nhalf: ane::Tensor,
+    g: &mut Graph,
+    x: ane::Tensor,
+    w: &[f32],
+    b: &[f32],
+    d: usize,
+    nhalf: ane::Tensor,
 ) -> ane::Tensor {
     let wt = g.constant(w, sc(d));
     let bt = g.constant(b, sc(d));
-    let mean = g.reduce_mean(x, 1);
-    let centered = g.subtraction(x, mean);
-    let sq = g.multiplication(centered, centered);
-    let var = g.reduce_mean(sq, 1);
-    let var_eps = g.linear(var, 1.0, 1e-12); // var + eps via linear (saves eps constant)
+    // Parallel-friendly variance: E[x²]-E[x]² (two independent reduce_means)
+    let x2 = g.multiplication(x, x);
+    let mean_x = g.reduce_mean(x, 1); // E[x] — independent of x2
+    let mean_x2 = g.reduce_mean(x2, 1); // E[x²] — independent of mean_x
+    let mean_sq = g.multiplication(mean_x, mean_x); // E[x]²
+    let var = g.subtraction(mean_x2, mean_sq); // E[x²] - E[x]²
+    let var_eps = g.linear(var, 1.0, 1e-12);
     let rstd = g.power(var_eps, nhalf);
+    let centered = g.subtraction(x, mean_x);
     let normed = g.multiplication(centered, rstd);
     let scaled = g.multiplication(normed, wt);
     g.addition(scaled, bt)
@@ -155,7 +163,11 @@ pub fn gelu(g: &mut Graph, x: ane::Tensor) -> ane::Tensor {
 // ─── Layer graph builder ──────────────────────────────────────────────────
 
 fn add_layer_to_graph(
-    g: &mut Graph, x: ane::Tensor, mask: ane::Tensor, w: &LW, nhalf: ane::Tensor,
+    g: &mut Graph,
+    x: ane::Tensor,
+    mask: ane::Tensor,
+    w: &LW,
+    nhalf: ane::Tensor,
 ) -> ane::Tensor {
     // Fused QKV projection with pre-scaled Q weights (eliminates runtime scale multiply)
     let q_scale = 1.0 / (HD as f32).sqrt();
@@ -275,8 +287,13 @@ fn compile_three_layers(w0: &LW, w1: &LW, w2: &LW) -> Executable {
 }
 
 fn compile_three_layers_with_cls(
-    w0: &LW, w1: &LW, w2: &LW,
-    pre_w: &[f32], pre_b: &[f32], cls_w: &[f32], cls_b: &[f32],
+    w0: &LW,
+    w1: &LW,
+    w2: &LW,
+    pre_w: &[f32],
+    pre_b: &[f32],
+    cls_w: &[f32],
+    cls_b: &[f32],
 ) -> Executable {
     let mut g = Graph::new();
     let x = g.placeholder(Shape::spatial(DIM, 1, SEQ));
@@ -303,7 +320,10 @@ fn compile_three_layers_with_cls(
 
 fn compile_six_layers_with_cls(
     layers: &[LW],
-    pre_w: &[f32], pre_b: &[f32], cls_w: &[f32], cls_b: &[f32],
+    pre_w: &[f32],
+    pre_b: &[f32],
+    cls_w: &[f32],
+    cls_b: &[f32],
 ) -> Executable {
     let mut g = Graph::new();
     let x = g.placeholder(Shape::spatial(DIM, 1, SEQ));
@@ -409,7 +429,10 @@ pub fn compile_classifier(mw: &MW) -> Executable {
                         &weights[LAYERS - 3],
                         &weights[LAYERS - 2],
                         &weights[LAYERS - 1],
-                        &mw.pre_w, &mw.pre_b, &mw.cls_w, &mw.cls_b,
+                        &mw.pre_w,
+                        &mw.pre_b,
+                        &mw.cls_w,
+                        &mw.cls_b,
                     );
                     *fused.last_mut().unwrap() = fused_exe;
                     CLS_FUSED.with(|c| *c.borrow_mut() = true);

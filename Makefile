@@ -1,6 +1,23 @@
 CARGO := $(HOME)/.cargo/bin/cargo
 
-.PHONY: build bench verify fmt lint clean
+.PHONY: build bench verify fmt lint clean check-rust check-python setup
+
+check-rust:
+	@if [ ! -f $(CARGO) ]; then \
+		echo "Rust not found. Installing via rustup..."; \
+		curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; \
+	else \
+		echo "Rust OK"; \
+	fi
+
+check-python:
+	@python3 -c "import coremltools, numpy, huggingface_hub" 2>/dev/null || \
+		(echo "Installing Python dependencies..." && pip3 install coremltools numpy huggingface_hub)
+	@echo "Python OK"
+
+setup: check-rust check-python build
+	@cd ane_kernel && $(CARGO) run --release -p ane-bench -- chip
+	@cd ane_kernel && $(CARGO) run --release -p ane-bench -- ram
 
 build:
 	cd ane_kernel && $(CARGO) build --release --workspace
