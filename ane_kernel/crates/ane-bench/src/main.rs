@@ -9,14 +9,42 @@ use serde::Deserialize;
 const ORG: &str = "sai_ane";
 const API_URL: &str = "https://api.ensue-network.ai/";
 
+fn git_root() -> Option<std::path::PathBuf> {
+    Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| std::path::PathBuf::from(String::from_utf8_lossy(&o.stdout).trim().to_string()))
+}
+
 fn api_key() -> String {
     if let Ok(k) = std::env::var("ENSUE_API_KEY") {
         return k;
     }
-    if let Ok(k) = std::fs::read_to_string(".autoresearch-key") {
-        return k.trim().to_string();
+    // Check git repo root for .autoresearch-key
+    if let Some(root) = git_root() {
+        let key_path = root.join(".autoresearch-key");
+        if let Ok(k) = std::fs::read_to_string(&key_path) {
+            let k = k.trim().to_string();
+            if !k.is_empty() {
+                return k;
+            }
+        }
     }
-    eprintln!("No Ensue API key. Set ENSUE_API_KEY or create .autoresearch-key");
+    // Fallback: check cwd (for running outside git)
+    if let Ok(k) = std::fs::read_to_string(".autoresearch-key") {
+        let k = k.trim().to_string();
+        if !k.is_empty() {
+            return k;
+        }
+    }
+    eprintln!("No Ensue API key found.");
+    eprintln!("  Checked: ENSUE_API_KEY env var");
+    if let Some(root) = git_root() {
+        eprintln!("  Checked: {}/.autoresearch-key", root.display());
+    }
+    eprintln!("  Fix: Set ENSUE_API_KEY or create .autoresearch-key in the project root");
     std::process::exit(1);
 }
 
@@ -83,6 +111,10 @@ fn rpc(tool_name: &str, arguments: serde_json::Value) -> Option<serde_json::Valu
         Ok(r) => r,
         Err(e) => {
             eprintln!("Ensue HTTP error: {e}");
+            if e.to_string().contains("401") {
+                eprintln!("  Key may be invalid, expired, or org invite not accepted.");
+                eprintln!("  Join org: https://www.ensue-network.ai/join?token=cffdd0692fb147c8b3f6422167118d69e6ec4809e88642e2a34359f0e1a5b3df");
+            }
             return None;
         }
     };

@@ -32,7 +32,7 @@ make setup
 
 ## Ensue agent registration
 
-If `.autoresearch-key` exists, skip this section. Otherwise, ask the user to pick an agent name. Make it fun — suggest something like "ane-whisperer", "silicon-surfer", "neural-ninja", or whatever fits their vibe. The name will identify their results in the swarm.
+If `.autoresearch-key` exists, skip this section. Otherwise, ask the user to pick an agent name. Make it fun — suggest something like "ane-whisperer", "silicon-surfer", "neural-ninja", or whatever fits their vibe. The name will identify their results in the swarm. Name must be alphanumeric with hyphens/underscores only (no spaces).
 
 Once they pick a name:
 
