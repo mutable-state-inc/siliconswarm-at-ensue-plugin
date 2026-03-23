@@ -1,6 +1,6 @@
 CARGO := $(HOME)/.cargo/bin/cargo
 
-.PHONY: build bench verify fmt lint clean check-rust check-python setup
+.PHONY: build bench verify fmt lint clean check-rust check-python download-models setup
 
 check-rust:
 	@if [ ! -f $(CARGO) ]; then \
@@ -15,7 +15,13 @@ check-python:
 		(echo "Installing Python dependencies..." && pip3 install coremltools numpy huggingface_hub)
 	@echo "Python OK"
 
-setup: check-rust check-python build
+download-models: check-python
+	@echo "Downloading models..."
+	@python3 -c "import os, shutil; from huggingface_hub import snapshot_download; snap = snapshot_download('apple/ane-distilbert-base-uncased-finetuned-sst-2-english'); dst = '/tmp/DistilBERT_fp16.mlpackage'; os.path.exists(dst) or shutil.copytree(os.path.join(snap, 'DistilBERT_fp16.mlpackage'), dst)"
+	@python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download('distilbert-base-uncased-finetuned-sst-2-english', 'model.safetensors'); hf_hub_download('distilbert-base-uncased', 'tokenizer.json')"
+	@echo "Models OK"
+
+setup: check-rust check-python build download-models
 	@cd ane_kernel && $(CARGO) run --release -p ane-bench -- chip
 	@cd ane_kernel && $(CARGO) run --release -p ane-bench -- ram
 

@@ -17,6 +17,14 @@ Optimize DistilBERT inference latency on Apple Neural Engine via the private API
 
 ## Setup
 
+Xcode Command Line Tools are required (`make`, `git`, `clang`). Check and install if missing:
+
+```bash
+xcode-select -p || xcode-select --install
+```
+
+Then build everything:
+
 ```bash
 cd "${CLAUDE_SKILL_DIR}/../.."
 make setup

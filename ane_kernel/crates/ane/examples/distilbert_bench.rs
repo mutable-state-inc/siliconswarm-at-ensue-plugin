@@ -63,17 +63,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (_, _, label) = classify(&cls_out);
     eprintln!("  Sanity: \"I love this movie!\" → {label}");
 
-    // Benchmark
-    eprintln!("\n  Benchmarking (1000 iterations)...");
-    let slen = embed(
-        &mw,
-        &tok,
-        "This is a test sentence for benchmarking.",
-        &hidden_a,
-    );
+    // Benchmark: embed + forward per iteration to match CoreML model.predict() scope
+    // (CoreML's predict includes embedding layer; tokenization overhead is ~µs, negligible)
+    eprintln!("\n  Benchmarking (1000 iterations, embed+forward)...");
+    let text = "This is a test sentence for benchmarking.";
+    let slen = embed(&mw, &tok, text, &hidden_a);
     set_mask(&mask_td, slen);
 
     for _ in 0..50 {
+        embed(&mw, &tok, text, &hidden_a);
         forward(
             &layer_exes,
             &cls_exe,
@@ -87,6 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut times = Vec::with_capacity(1000);
     for _ in 0..1000 {
         let start = Instant::now();
+        embed(&mw, &tok, text, &hidden_a);
         forward(
             &layer_exes,
             &cls_exe,
@@ -105,7 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!();
     eprintln!("═══════════════════════════════════════════════════════");
     eprintln!(
-        "  Results (ANE private API, {LAYERS} layers, {} dispatches)",
+        "  Results (ANE private API, embed+{LAYERS} layers+cls, {} dispatches)",
         LAYERS + 1
     );
     eprintln!("═══════════════════════════════════════════════════════");
