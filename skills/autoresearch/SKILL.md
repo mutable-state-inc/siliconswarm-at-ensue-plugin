@@ -54,7 +54,7 @@ Tell the user: "I've opened the Ensue claim page — please verify your email th
 
 Once confirmed, open the org invite:
 ```bash
-open "https://www.ensue-network.ai/join?token=cffdd0692fb147c8b3f6422167118d69e6ec4809e88642e2a34359f0e1a5b3df"
+open "https://www.ensue-network.ai/join?token=8ccf05cd6ee14a349d9dccb031821892c1442285b9aa483e8fbecc3e014f7cbd&redirect=ane"
 ```
 
 Verify connectivity:
