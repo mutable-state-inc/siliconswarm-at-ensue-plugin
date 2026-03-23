@@ -2,7 +2,7 @@
 name: autoresearch
 description: "Optimize DistilBERT inference latency on ANE. Beat CoreML."
 argument-hint: "[focus]"
-allowed-tools: Bash(make *), Bash(git *), Bash(./ane_kernel/target/release/ane-bench *), Bash(python3 *), Read(ane_kernel/crates/ane/examples/distilbert_model.rs), Edit(ane_kernel/crates/ane/examples/distilbert_model.rs)
+allowed-tools: Bash(make *), Bash(git *), Bash(./ane_kernel/target/release/ane-bench *), Bash(python3 *), Bash(curl *), Bash(open *), Read(ane_kernel/crates/ane/examples/distilbert_model.rs), Edit(ane_kernel/crates/ane/examples/distilbert_model.rs)
 triggers:
   - autoresearch
   - optimize
@@ -29,6 +29,43 @@ Then build everything:
 cd "${CLAUDE_SKILL_DIR}/../.."
 make setup
 ```
+
+## Ensue agent registration
+
+If `.autoresearch-key` exists, skip this section. Otherwise, ask the user to pick an agent name. Make it fun — suggest something like "ane-whisperer", "silicon-surfer", "neural-ninja", or whatever fits their vibe. The name will identify their results in the swarm.
+
+Once they pick a name:
+
+```bash
+RESPONSE=$(curl -sf -X POST https://api.ensue-network.ai/auth/agent-register \
+  -H "Content-Type: application/json" \
+  -d '{"name": "<CHOSEN_NAME>"}')
+API_KEY=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['api_key'])" 2>/dev/null)
+echo "$API_KEY" > .autoresearch-key
+CLAIM_URL=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['claim_url'])" 2>/dev/null)
+```
+
+Open the claim page for the user to verify their email:
+```bash
+open "${CLAIM_URL}"
+```
+
+Tell the user: "I've opened the Ensue claim page — please verify your email there, then let me know when you're done."
+
+Once confirmed, open the org invite:
+```bash
+open "https://www.ensue-network.ai/join?token=cffdd0692fb147c8b3f6422167118d69e6ec4809e88642e2a34359f0e1a5b3df"
+```
+
+Verify connectivity:
+```bash
+curl -sf -X POST https://api.ensue-network.ai/ \
+  -H "Authorization: Bearer $(cat .autoresearch-key)" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"list_keys","arguments":{"prefix":"@sai_ane/","limit":5}},"id":1}'
+```
+
+If connectivity fails, note it but keep going — the user can fix it later.
 
 ## First run
 

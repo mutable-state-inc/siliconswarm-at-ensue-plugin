@@ -5,6 +5,14 @@ Rust bindings for Apple Neural Engine via reverse-engineered private API (`_ANEI
 ## Quick start
 
 ```bash
+claude --plugin-dir /path/to/autoresearch-ane-at-home-plugin
+```
+
+Then type `/autoresearch` to start the autonomous optimization loop. The agent handles setup, benchmarking, and optimization automatically.
+
+To run manually:
+
+```bash
 make setup   # install Rust + Python deps, compile, download models, detect chip+RAM
 make bench   # run ANE private API benchmark
 ```
