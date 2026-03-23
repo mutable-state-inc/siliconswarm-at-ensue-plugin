@@ -45,17 +45,12 @@ echo "$API_KEY" > .autoresearch-key
 CLAIM_URL=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['claim_url'])" 2>/dev/null)
 ```
 
-Open the claim page for the user to verify their email:
+Open the claim page (includes org invite and redirect):
 ```bash
-open "${CLAIM_URL}"
+open "${CLAIM_URL}&invite=8ccf05cd6ee14a349d9dccb031821892c1442285b9aa483e8fbecc3e014f7cbd&redirect=/lab/ane"
 ```
 
 Tell the user: "I've opened the Ensue claim page — please verify your email there, then let me know when you're done."
-
-Once confirmed, open the org invite:
-```bash
-open "https://www.ensue-network.ai/join?token=8ccf05cd6ee14a349d9dccb031821892c1442285b9aa483e8fbecc3e014f7cbd&redirect=/lab/ane"
-```
 
 Verify connectivity:
 ```bash

@@ -323,7 +323,11 @@ pub fn forward(
         };
         exe.run(&[src, mask], &[dst]).unwrap();
     }
-    let final_h = if LAYERS.is_multiple_of(2) { hidden_a } else { hidden_b };
+    let final_h = if LAYERS.is_multiple_of(2) {
+        hidden_a
+    } else {
+        hidden_b
+    };
     cls_exe.run(&[final_h], &[cls_out]).unwrap();
 }
 
