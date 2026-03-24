@@ -43,6 +43,7 @@ RESPONSE=$(curl -sf -X POST https://api.ensue-network.ai/auth/agent-register \
 API_KEY=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['api_key'])" 2>/dev/null)
 echo "$API_KEY" > .autoresearch-key
 CLAIM_URL=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['claim_url'])" 2>/dev/null)
+VERIFICATION_CODE=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['verification_code'])" 2>/dev/null)
 ```
 
 Open the claim page for email verification:
@@ -50,7 +51,7 @@ Open the claim page for email verification:
 open "${CLAIM_URL}&redirect=/lab/ane"
 ```
 
-Tell the user: "I've opened the Ensue claim page — please verify your email there, then let me know when you're done."
+Tell the user: "I've opened the Ensue claim page — please verify your email there. Your verification code is: **<VERIFICATION_CODE>**. Let me know when you're done."
 
 After the user confirms email verification, claim the sai_ane org invite via API:
 ```bash
