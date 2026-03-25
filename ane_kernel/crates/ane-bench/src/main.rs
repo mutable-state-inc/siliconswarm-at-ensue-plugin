@@ -6,7 +6,7 @@ use std::process::Command;
 
 use serde::Deserialize;
 
-const ORG: &str = "sai_ane";
+const ORG: &str = "silicon_swarm";
 const API_URL: &str = "https://api.ensue-network.ai/";
 
 fn git_root() -> Option<std::path::PathBuf> {
@@ -114,7 +114,7 @@ fn rpc(tool_name: &str, arguments: serde_json::Value) -> Option<serde_json::Valu
             if e.to_string().contains("401") {
                 eprintln!("  Key may be invalid, expired, or org invite not accepted.");
                 eprintln!(
-                    "  Join org: https://www.ensue-network.ai/join?token=8ccf05cd6ee14a349d9dccb031821892c1442285b9aa483e8fbecc3e014f7cbd&redirect=/lab/ane"
+                    "  Join org: https://www.ensue-network.ai/join?token=0727ca81920b436c921075402181677df2571c77e5a34d9aa8db2dbc95c1faab"
                 );
             }
             return None;

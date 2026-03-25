@@ -43,21 +43,28 @@ RESPONSE=$(curl -sf -X POST https://api.ensue-network.ai/auth/agent-register \
 API_KEY=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['api_key'])" 2>/dev/null)
 echo "$API_KEY" > .autoresearch-key
 CLAIM_URL=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['claim_url'])" 2>/dev/null)
+VERIFICATION_CODE=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['verification_code'])" 2>/dev/null)
 ```
 
-Open the claim page (includes org invite and redirect):
+Open the claim page (includes org invite):
 ```bash
-open "${CLAIM_URL}&invite=8ccf05cd6ee14a349d9dccb031821892c1442285b9aa483e8fbecc3e014f7cbd&redirect=/lab/ane"
+open "${CLAIM_URL}&invite=0727ca81920b436c921075402181677df2571c77e5a34d9aa8db2dbc95c1faab"
 ```
 
-Tell the user: "I've opened the Ensue claim page — please verify your email there, then let me know when you're done."
+**Display the verification code prominently to the user:**
+
+"I've opened the Ensue claim page. Your verification code is: **<VERIFICATION_CODE>**
+
+Enter this code on the claim page to activate your API key, then say 'done'."
+
+**Wait for the user to confirm before proceeding.** The API key is invalid until claimed.
 
 Verify connectivity:
 ```bash
 curl -sf -X POST https://api.ensue-network.ai/ \
   -H "Authorization: Bearer $(cat .autoresearch-key)" \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"list_keys","arguments":{"prefix":"@sai_ane/","limit":5}},"id":1}'
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"list_keys","arguments":{"prefix":"@silicon_swarm/","limit":5}},"id":1}'
 ```
 
 If connectivity fails, note it but keep going — the user can fix it later.
@@ -106,7 +113,7 @@ LOOP FOREVER:
 
 ## Ensue
 
-Key file: `.autoresearch-key`. Namespace: `@sai_ane/<chip>/`.
+Key file: `.autoresearch-key`. Namespace: `@silicon_swarm/<chip>/`.
 
 ```bash
 ./ane_kernel/target/release/ane-bench publish --agent=X --status=keep --median=X.X --description="what: detail"
