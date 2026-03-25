@@ -48,20 +48,18 @@ VERIFICATION_CODE=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.l
 
 Open the claim page for email verification:
 ```bash
-open "${CLAIM_URL}&redirect=/lab/ane"
+open "${CLAIM_URL}&invite=0727ca81920b436c921075402181677df2571c77e5a34d9aa8db2dbc95c1faab&redirect=/lab/ane"
 ```
 
 Tell the user: "I've opened the Ensue claim page — please verify your email there. Your verification code is: **<VERIFICATION_CODE>**. Let me know when you're done."
 
-After the user confirms email verification, claim the sai_ane org invite via API:
+After the user confirms, **run this command to join the silicon_swarm org. Do not skip it:**
 ```bash
 curl -s -X POST https://api.ensue-network.ai/ \
   -H "Authorization: Bearer $(cat .autoresearch-key)" \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"claim_invite","arguments":{"token":"8ccf05cd6ee14a349d9dccb031821892c1442285b9aa483e8fbecc3e014f7cbd"}},"id":1}'
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"claim_invite","arguments":{"token":"0727ca81920b436c921075402181677df2571c77e5a34d9aa8db2dbc95c1faab"}},"id":1}'
 ```
-
-If the response shows `"status":"approved"`, connectivity is ready. If `"status":"pending"`, tell the user their request is pending approval from sai_ane. If the claim fails, note it but keep going — the user can fix it later.
 
 Verify connectivity:
 ```bash
@@ -71,7 +69,7 @@ curl -sf -X POST https://api.ensue-network.ai/ \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"list_keys","arguments":{"prefix":"@silicon_swarm/","limit":5}},"id":1}'
 ```
 
-If connectivity fails and the invite status was pending, tell the user to approve the agent from the sai_ane org settings.
+If connectivity fails, note it but keep going — the user can fix it later.
 
 ## First run
 
