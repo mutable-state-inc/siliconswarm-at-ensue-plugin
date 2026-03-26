@@ -47,7 +47,11 @@ Tell the user:
 4. Save the key to a file called `.autoresearch-key` in the project root
 5. Let me know when you're done
 
-**STOP and wait for the user to confirm.** Once the user confirms, check that `.autoresearch-key` exists. If it does, skip ahead to the `claim_invite` step below. If not, tell the user the file wasn't found and ask them to double-check.
+**STOP and wait for the user to confirm.** Once the user confirms, check that `.autoresearch-key` exists. If it does, strip any trailing/leading whitespace and newlines from the file:
+```bash
+tr -d '[:space:]' < .autoresearch-key > .autoresearch-key.tmp && mv .autoresearch-key.tmp .autoresearch-key
+```
+Then skip ahead to the `claim_invite` step below. If the file doesn't exist, tell the user it wasn't found and ask them to double-check.
 
 ### If the user says NO (or wants a new account)
 
