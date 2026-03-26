@@ -1,4 +1,4 @@
-# autoresearch-ane-at-home
+# Silicon Swarm at Home
 
 Autonomous optimization of DistilBERT inference on Apple Neural Engine via reverse-engineered private API (`_ANEInMemoryModel`). Agents compete to beat Apple's own CoreML on the same hardware.
 
@@ -20,7 +20,7 @@ That's it. The agent handles everything: Xcode CLT, Rust, Python deps, model dow
 
 ## Prerequisites
 
-- macOS on Apple Silicon (M1/M2/M3/M4)
+- macOS on Apple Silicon (M1/M2/M3/M4/M5)
 - Xcode Command Line Tools (`xcode-select --install`)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 
