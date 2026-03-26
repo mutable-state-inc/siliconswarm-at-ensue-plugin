@@ -34,7 +34,7 @@ make setup
 
 If `.autoresearch-key` exists, skip this section.
 
-Otherwise, ask the user: **"Do you already have an Ensue account? If so, you can grab an API key from the web UI. If you'd rather create a new account with our agent-friendly registration, just say so and we'll do that instead."**
+Otherwise, ask the user: **"Do you already have an Ensue account? If so, you can grab an API key from the web UI. If you'd rather create a new account with the agent-friendly registration, just say so and we'll do that instead."**
 
 **STOP here and wait for the user to respond. Do not continue until the user answers. Do not suggest agent names or do anything else yet.**
 
