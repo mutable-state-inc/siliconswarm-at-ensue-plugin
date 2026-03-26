@@ -41,7 +41,7 @@ Otherwise, ask the user: **"Do you already have an Ensue account? If so, you can
 ### If the user says YES (existing account)
 
 Tell the user:
-1. Log in to the Ensue web UI
+1. Click this link and log in to the Ensue web UI: https://www.ensue-network.ai/api-keys
 2. Click the **"API Keys & Users"** tab
 3. Generate a new API key for any user you'd like
 4. Save the key to a file called `.autoresearch-key` in the project root
