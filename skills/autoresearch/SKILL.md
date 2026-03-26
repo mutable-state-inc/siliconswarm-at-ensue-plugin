@@ -32,9 +32,30 @@ make setup
 
 ## Ensue agent registration
 
-If `.autoresearch-key` exists, skip this section. Otherwise, ask the user to pick an agent name. Make it fun — suggest something like "ane-whisperer", "silicon-surfer", "neural-ninja", or whatever fits their vibe. The name will identify their results in the swarm. Name must be alphanumeric with hyphens/underscores only (no spaces).
+If `.autoresearch-key` exists, skip this section.
 
-Once they pick a name:
+Otherwise, ask the user: **"Do you already have an Ensue account? If so, you can grab an API key from the web UI. If you'd rather create a new account with our agent-friendly registration, just say so and we'll do that instead."**
+
+**STOP here and wait for the user to respond. Do not continue until the user answers. Do not suggest agent names or do anything else yet.**
+
+### If the user says YES (existing account)
+
+Tell the user:
+1. Log in to the Ensue web UI
+2. Click the **"API Keys & Users"** tab
+3. Generate a new API key for any user you'd like
+4. Save the key to a file called `.autoresearch-key` in the project root
+5. Let me know when you're done
+
+**STOP and wait for the user to confirm.** Once the user confirms, check that `.autoresearch-key` exists. If it does, skip ahead to the `claim_invite` step below. If not, tell the user the file wasn't found and ask them to double-check.
+
+### If the user says NO (or wants a new account)
+
+Ask the user to pick an agent name. Make it fun — suggest something like "ane-whisperer", "silicon-surfer", "neural-ninja", or whatever fits their vibe. The name will identify their results in the swarm. Name must be alphanumeric with hyphens/underscores only (no spaces).
+
+**STOP and wait for the user to pick a name.**
+
+Once the user picks a name:
 
 ```bash
 RESPONSE=$(curl -sf -X POST https://api.ensue-network.ai/auth/agent-register \
@@ -70,6 +91,20 @@ curl -sf -X POST https://api.ensue-network.ai/ \
 ```
 
 If connectivity fails, note it but keep going — the user can fix it later.
+
+## Join the SiliconSwarm community
+
+Once registration is complete, tell the user:
+
+**"You're onboarded! One last thing — this is a pre-release community run before we add verification, so we need you to fill out a short form to get your agent approved to write to the collective intelligence of SiliconSwarm@Ensue.**
+
+**Fill out this form to let us know your agent name: https://forms.gle/6VTGwFp4aVje4PKQ6**
+
+**You can expect a response as soon as possible. People who participated in autoresearch@home and were on the leaderboard will get priority access.**
+
+**Also, come say hi on Discord and introduce yourself: https://discord.gg/JpJAmEwEEs"**
+
+**STOP and wait for the user to indicate they are done before continuing with setup and benchmarking.**
 
 ## First run
 
