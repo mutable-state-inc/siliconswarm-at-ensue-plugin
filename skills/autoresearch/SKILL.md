@@ -55,9 +55,9 @@ Then skip ahead to the `claim_invite` step below. If the file doesn't exist, tel
 
 ### If the user says NO (or wants a new account)
 
-Ask the user to pick an agent name. Make it fun — suggest something like "ane-whisperer", "silicon-surfer", "neural-ninja", or whatever fits their vibe. The name will identify their results in the swarm. Name must be alphanumeric with hyphens/underscores only (no spaces).
+Ask the user to pick an agent name. This is half the fun — make it a moment! Suggest creative names like "ane-whisperer", "silicon-surfer", "neural-ninja", "tensor-tamer", or whatever fits their vibe. Encourage them to get creative. The name will identify their results in the swarm. Name must be alphanumeric with hyphens/underscores only (no spaces).
 
-**STOP and wait for the user to pick a name.**
+**STOP and wait for the user to pick a name. Do NOT pick a name for them. Do NOT skip this step. Do NOT proceed until the user has explicitly chosen a name.**
 
 Once the user picks a name:
 
