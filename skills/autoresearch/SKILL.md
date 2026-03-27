@@ -2,7 +2,7 @@
 name: autoresearch
 description: "Optimize DistilBERT inference latency on ANE. Beat CoreML."
 argument-hint: "[focus]"
-allowed-tools: Bash(make *), Bash(git *), Bash(./ane_kernel/target/release/ane-bench *), Bash(python3 *), Bash(curl *), Bash(open *), Read(ane_kernel/crates/ane/examples/distilbert_model.rs), Edit(ane_kernel/crates/ane/examples/distilbert_model.rs)
+allowed-tools: Bash(make *), Bash(git *), Bash(./ane_kernel/target/release/ane-bench *), Bash(python3 *), Bash(curl *), Bash(open *), Read(ane_kernel/crates/ane/examples/distilbert_model.rs), Edit(ane_kernel/crates/ane/examples/distilbert_model.rs), Read(ane_kernel/crates/ane/src/graph/ops.rs), Read(ane_kernel/crates/ane/src/executable.rs), Read(ane_kernel/crates/ane/src/tensor_data.rs)
 triggers:
   - autoresearch
   - optimize
@@ -133,7 +133,7 @@ Then publish the baseline:
 
 - Edit ONLY `ane_kernel/crates/ane/examples/distilbert_model.rs`
 - Do NOT modify the benchmark harness (`distilbert_bench.rs`), CoreML benchmark (`benchmark_coreml.py`), or verification (`distilbert_verify.rs`). The benchmark input, iteration count, and timing methodology are fixed.
-- Do NOT read any other source files. Run `/ane-private-api` for the API reference.
+- Run `/ane-private-api` for the API reference. You may also read the source files `ane_kernel/crates/ane/src/graph/ops.rs`, `ane_kernel/crates/ane/src/executable.rs`, and `ane_kernel/crates/ane/src/tensor_data.rs` to understand the full API surface — the source code is the ground truth.
 - `make verify` THEN `make bench`. Never skip verify.
 - Run ONE command per Bash call. Do NOT chain commands with `&&`, `||`, `;`, or `echo`. Each command gets its own Bash call.
 
@@ -151,7 +151,9 @@ LOOP FOREVER:
         → An optimization that worked on M1 may work on M4 too. Look for patterns.
         → Search for topics relevant to what you're about to try (e.g., "attention", "conv", "layout", "fusion", "quantization").
         → Use --chip to narrow to your chip only if needed.
-     d. Synthesize: What have you learned from the swarm? What patterns are emerging across chips? What hasn't been tried yet?
+     d. Run `/ane-private-api` periodically (every 3-5 iterations) and look for ops you haven't tried yet.
+        → The API surface area is large. Don't get stuck in a rut using the same ops.
+     e. Synthesize: What have you learned from the swarm? What patterns are emerging across chips? What haven't you tried yet from the API?
   2. Read distilbert_model.rs
   3. Hypothesize — what specifically will you change and why? Ground this in what you learned in step 1.
   4. Edit
@@ -183,7 +185,7 @@ Key file: `.autoresearch-key`. Namespace: `@silicon_swarm/<chip>/`.
 
 ## API
 
-Run `/ane-private-api` for the complete reference.
+Run `/ane-private-api` to load the complete ANE private API reference. **Do this early and revisit it often.** The API has ops you probably haven't tried yet. Every few iterations, re-read the reference and look for ops or combinations you haven't explored. The surface area is large — `convolution_2d`, `convolution_transpose_2d`, `max_pool`, `avg_pool`, `global_avg_pool`, `pad`, `flatten_2d`, `instance_norm`, and many more. Don't just stick with `inner_product` and `matrix_multiplication` — creative use of unexpected ops is how breakthroughs happen. Ask yourself: can a reshape eliminate a transpose? Can a pooling op replace a reduction? Can a convolution replace a matmul? Explore the full surface area.
 
 ## Never stop
 

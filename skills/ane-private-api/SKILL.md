@@ -55,7 +55,15 @@ TensorData::with_f32(&[f32], shape) → TensorData
 **Executable** — compiled ANE program:
 ```rust
 exe.run(&[&TensorData], &[&TensorData]) → Result<(), Error>
+exe.run_cached(&[&TensorData], &[&TensorData]) → Result<(), Error>
+exe.run_cached_with_stats(&[&TensorData], &[&TensorData]) → Result<u64, Error>
+exe.run_cached_direct(&[&TensorData], &[&TensorData]) → Result<(), Error>
 ```
+
+- `run` — standard execution. Creates a new `_ANERequest` each call.
+- `run_cached` — caches the ANE request object after first call. Saves ~0.095ms per dispatch. **Must pass the same TensorData objects every call** (contents can change, objects must be the same).
+- `run_cached_with_stats` — same as `run_cached` but returns `hw_execution_time_ns`: actual nanoseconds spent on ANE hardware, excluding XPC/dispatch overhead. Use this to understand where time is really going.
+- `run_cached_direct` — XPC bypass via `_ANEClient.doEvaluateDirectWithModel`. Skips the ANE daemon entirely. Same caching semantics as `run_cached`.
 
 **Tensor** — graph node handle returned by all ops. Not data.
 
