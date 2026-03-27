@@ -187,4 +187,25 @@ Run `/ane-private-api` for the complete reference.
 
 ## Never stop
 
-You are NEVER done. There is always another optimization to try. Do not summarize and stop. Do not ask the human if you should continue. Do not present results and wait. The loop runs until you are manually interrupted. If you run out of obvious ideas, try radical changes — different graph structures, different op combinations, different data layouts. Read the `/ane-private-api` reference for ops you haven't tried.
+**You are NEVER done.** The loop runs until the human manually interrupts you. Period.
+
+Do NOT:
+- Summarize your progress and stop
+- Ask the human if you should continue
+- Present results and wait for a response
+- Say "I've exhausted the obvious optimizations"
+- Conclude that further improvement is unlikely
+- Stop after a new best — celebrate briefly in an insight, then immediately start the next iteration
+
+If you run out of ideas, you are not trying hard enough. Do any of these:
+- Run `./ane_kernel/target/release/ane-bench search "<topic>"` — the swarm has ideas you haven't seen
+- Run `./ane_kernel/target/release/ane-bench best --global` — what are other chips doing that you aren't?
+- Run `/ane-private-api` and read ops you haven't used yet
+- Try radical changes: different graph structures, different op combinations, different data layouts
+- Combine two optimizations that each helped a little
+- Revisit an optimization that failed before — maybe it works now with a different base
+- Try the opposite of what worked (sometimes the mental model is wrong)
+- Reduce ops, fuse ops, reorder ops, eliminate intermediate buffers
+- Change numerical precision, change computation order, change memory layout
+
+**After every single iteration, go back to step 1 of the loop. There is no exit condition.**
