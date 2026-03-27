@@ -338,14 +338,29 @@ fn cmd_hypothesis(chip: &str, agent: &str, title: &str, text: &str) {
 }
 
 fn cmd_results(chip: &str) {
-    let keys = list_keys(&format!("@{ORG}/{chip}/results/"));
-    if keys.is_empty() {
-        println!("No results for {chip}");
+    cmd_results_prefix(&format!("@{ORG}/{chip}/results/"), chip);
+}
+
+fn cmd_results_global() {
+    cmd_results_prefix(&format!("@{ORG}/"), "all chips");
+}
+
+fn cmd_results_prefix(prefix: &str, label: &str) {
+    // For global, we list all keys under @org/ and filter to results
+    let keys = list_keys(prefix);
+    let result_keys: Vec<_> = if prefix.ends_with("/results/") {
+        keys
+    } else {
+        keys.into_iter()
+            .filter(|k| k.contains("/results/"))
+            .collect()
+    };
+    if result_keys.is_empty() {
+        println!("No results for {label}");
         return;
     }
-    println!("Results for {chip}:");
-    for key in &keys {
-        // list_keys returns relative key_name, get_memory needs full @org/ prefix
+    println!("Results for {label}:");
+    for key in &result_keys {
         let full_key = if key.starts_with('@') {
             key.clone()
         } else {
@@ -358,18 +373,44 @@ fn cmd_results(chip: &str) {
                 .get("description")
                 .and_then(|v| v.as_str())
                 .unwrap_or("?");
-            println!("  {ms:6.3}ms [{status:7}] {desc}");
+            let result_chip = val.get("chip").and_then(|v| v.as_str()).unwrap_or("?");
+            let agent = val.get("agent").and_then(|v| v.as_str()).unwrap_or("?");
+            println!("  {ms:6.3}ms [{status:7}] [{result_chip}] [{agent}] {desc}");
         }
     }
 }
 
 fn cmd_best(chip: &str) {
-    // Scan results to find actual best (more reliable than best/metadata key)
-    let keys = list_keys(&format!("@{ORG}/{chip}/results/"));
-    let mut best_ms = f64::MAX;
-    let mut best_desc = String::new();
-    let mut best_agent = String::new();
-    for key in &keys {
+    cmd_best_prefix(&format!("@{ORG}/{chip}/results/"), chip);
+    match read_memory(&format!("@{ORG}/{chip}/baseline")) {
+        Some(val) => {
+            let ms = val
+                .get("coreml_median_ms")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            println!("CoreML baseline: {ms:.3}ms");
+        }
+        None => println!("No CoreML baseline. Run `ane-bench baseline <ms>`."),
+    }
+}
+
+fn cmd_best_global() {
+    cmd_best_prefix(&format!("@{ORG}/"), "all chips");
+}
+
+fn cmd_best_prefix(prefix: &str, label: &str) {
+    let keys = list_keys(prefix);
+    let result_keys: Vec<_> = if prefix.ends_with("/results/") {
+        keys
+    } else {
+        keys.into_iter()
+            .filter(|k| k.contains("/results/"))
+            .collect()
+    };
+    // Group best by chip
+    let mut best_by_chip: std::collections::HashMap<String, (f64, String, String)> =
+        std::collections::HashMap::new();
+    for key in &result_keys {
         let full_key = if key.starts_with('@') {
             key.clone()
         } else {
@@ -384,49 +425,62 @@ fn cmd_best(chip: &str) {
                 .get("median_ms")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(f64::MAX);
-            if ms < best_ms {
-                best_ms = ms;
-                best_desc = val
-                    .get("description")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("?")
-                    .to_string();
-                best_agent = val
-                    .get("agent")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("?")
-                    .to_string();
+            let result_chip = val
+                .get("chip")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let desc = val
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?")
+                .to_string();
+            let agent = val
+                .get("agent")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?")
+                .to_string();
+            let entry =
+                best_by_chip
+                    .entry(result_chip)
+                    .or_insert((f64::MAX, String::new(), String::new()));
+            if ms < entry.0 {
+                *entry = (ms, agent, desc);
             }
         }
     }
-    if best_ms < f64::MAX {
-        println!("Best for {chip}: {best_ms:.3}ms by {best_agent} — {best_desc}");
-        // Update best/metadata to match
-        let best_val = serde_json::json!({
-            "agent": best_agent,
-            "median_ms": best_ms,
-            "description": best_desc,
-            "timestamp": chrono_now(),
-        });
-        let best_key = format!("@{ORG}/{chip}/best/metadata");
-        let best_d = format!("Best for {chip}: {best_ms:.3}ms — {best_desc}");
-        rpc(
-            "delete_memory",
-            serde_json::json!({"key_names": [&best_key]}),
-        );
-        write_memory(&best_key, &best_d, &best_val);
-    } else {
-        println!("No results for {chip} yet.");
+    if best_by_chip.is_empty() {
+        println!("No results for {label} yet.");
+        return;
     }
-    match read_memory(&format!("@{ORG}/{chip}/baseline")) {
-        Some(val) => {
-            let ms = val
-                .get("coreml_median_ms")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0);
-            println!("CoreML baseline: {ms:.3}ms");
-        }
-        None => println!("No CoreML baseline. Run `ane-bench baseline <ms>`."),
+    println!("Best for {label}:");
+    let mut chips: Vec<_> = best_by_chip.into_iter().collect();
+    chips.sort_by(|a, b| a.1.0.partial_cmp(&b.1.0).unwrap());
+    for (chip, (ms, agent, desc)) in &chips {
+        println!("  {ms:6.3}ms [{chip}] by {agent} — {desc}");
+    }
+    // Update best/metadata if single-chip query
+    if prefix.ends_with("/results/")
+        && let Some((_, (ms, agent, desc))) = chips.first()
+    {
+            let chip_str = prefix
+                .strip_prefix(&format!("@{ORG}/"))
+                .unwrap_or("")
+                .strip_suffix("/results/")
+                .unwrap_or("");
+            let best_val = serde_json::json!({
+                "agent": agent,
+                "median_ms": ms,
+                "description": desc,
+                "timestamp": chrono_now(),
+            });
+            let best_key = format!("@{ORG}/{chip_str}/best/metadata");
+            let best_d = format!("Best for {chip_str}: {ms:.3}ms — {desc}");
+            rpc(
+                "delete_memory",
+                serde_json::json!({"key_names": [&best_key]}),
+            );
+            write_memory(&best_key, &best_d, &best_val);
     }
 }
 
@@ -445,12 +499,13 @@ fn cmd_insights(chip: &str) {
     }
 }
 
-fn cmd_search(chip: &str, query: &str) {
-    let results = search_memories(query, &format!("@{ORG}/{chip}/"));
+fn cmd_search(query: &str, prefix: &str, label: &str) {
+    let results = search_memories(query, prefix);
     if results.is_empty() {
-        println!("No results for query: {query}");
+        println!("No results for query \"{query}\" in {label}");
         return;
     }
+    println!("Search \"{query}\" in {label}:");
     for (key, snippet) in &results {
         println!("  {key}");
         if !snippet.is_empty() {
@@ -544,13 +599,37 @@ fn main() {
             cmd_hypothesis(&chip, &agent, &title, &text);
         }
 
-        "results" => cmd_results(&chip),
-        "best" => cmd_best(&chip),
+        "results" => {
+            if args.get(2).map(|s| s.as_str()) == Some("--global") {
+                cmd_results_global();
+            } else {
+                cmd_results(&chip);
+            }
+        }
+        "best" => {
+            if args.get(2).map(|s| s.as_str()) == Some("--global") {
+                cmd_best_global();
+            } else {
+                cmd_best(&chip);
+            }
+        }
         "insights" => cmd_insights(&chip),
 
         "search" => {
-            let query = args.get(2).expect("Usage: ane-bench search <query>");
-            cmd_search(&chip, query);
+            let query = args
+                .get(2)
+                .expect("Usage: ane-bench search <query> [--chip]");
+            if query == "--global" {
+                let q = args
+                    .get(3)
+                    .expect("Usage: ane-bench search --global <query>");
+                cmd_search(q, &format!("@{ORG}/"), "all chips");
+            } else if args.iter().any(|a| a == "--chip") {
+                cmd_search(query, &format!("@{ORG}/{chip}/"), &chip);
+            } else {
+                // Default: search globally across all chips
+                cmd_search(query, &format!("@{ORG}/"), "all chips");
+            }
         }
 
         _ => {
@@ -571,13 +650,16 @@ fn main() {
             eprintln!("  hypothesis --agent=X --title=\"...\" --text=\"...\"");
             eprintln!("                                    Propose an experiment idea");
             eprintln!("  results                           List all results for this chip");
+            eprintln!("  results --global                  List all results across all chips");
             eprintln!(
                 "  best                              Show best result + baseline for this chip"
             );
+            eprintln!("  best --global                     Show best results across all chips");
             eprintln!("  insights                          List insights for this chip");
             eprintln!(
-                "  search <query>                    Semantic search within this chip's namespace"
+                "  search <query>                    Semantic search across all chips (default)"
             );
+            eprintln!("  search <query> --chip             Semantic search within this chip only");
         }
     }
 }
